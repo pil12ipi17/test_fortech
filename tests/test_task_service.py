@@ -45,7 +45,7 @@ def make_token(
     return jwt.encode(payload, "test-secret", algorithm="HS256")
 
 
-def test_task_rbac_and_audit_across_owner_assignee_teamlead_and_admin():
+def test_task_rbac_audit_readiness_and_error_format():
     owner_token = make_token("user-1", "owner@example.com", roles=["user"], team_ids=["team-1"])
     assignee_token = make_token("user-2", "assignee@example.com", roles=["user"], team_ids=["team-1"])
     teamlead_token = make_token("user-3", "lead@example.com", roles=["teamlead"], team_ids=["team-1"])
@@ -53,6 +53,10 @@ def test_task_rbac_and_audit_across_owner_assignee_teamlead_and_admin():
     outsider_token = make_token("user-5", "other@example.com", roles=["user"], team_ids=["team-2"])
 
     with TestClient(app) as client:
+        readiness_response = client.get("/readiness")
+        assert readiness_response.status_code == 200
+        assert readiness_response.json()["database"] == "ok"
+
         create_response = client.post(
             "/tasks",
             headers={"Authorization": f"Bearer {owner_token}"},
@@ -121,6 +125,7 @@ def test_task_rbac_and_audit_across_owner_assignee_teamlead_and_admin():
 
         assignee_delete = client.delete(f"/tasks/{task_id}", headers={"Authorization": f"Bearer {assignee_token}"})
         assert assignee_delete.status_code == 403
+        assert assignee_delete.json()["error"]["code"] == "forbidden"
 
         outsider_read = client.get(f"/tasks/{task_id}", headers={"Authorization": f"Bearer {outsider_token}"})
         assert outsider_read.status_code == 404
@@ -130,7 +135,6 @@ def test_task_rbac_and_audit_across_owner_assignee_teamlead_and_admin():
 
         deleted_task_response = client.get(f"/tasks/{task_id}", headers={"Authorization": f"Bearer {owner_token}"})
         assert deleted_task_response.status_code == 404
-
     db = SessionLocal()
     try:
         actions = db.query(AuditLog.action).order_by(AuditLog.created_at.asc()).all()
@@ -253,7 +257,6 @@ def test_task_list_supports_filters_pagination_and_sorting():
         assert admin_all_tasks.json()["total"] == 1
         assert admin_all_tasks.json()["items"][0]["team_id"] == "team-22"
 
-
 def test_idempotency_replays_create_and_status_change_without_duplicate_audit():
     owner_token = make_token("user-21", "owner3@example.com", roles=["user"], team_ids=["team-31"])
 
@@ -285,6 +288,7 @@ def test_idempotency_replays_create_and_status_change_without_duplicate_audit():
             json={**create_payload, "title": "Different payload"},
         )
         assert conflicting_create.status_code == 409
+        assert conflicting_create.json()["error"]["code"] == "conflict"
 
         owner_tasks = client.get(
             "/tasks?owner_id=user-21",
@@ -314,6 +318,7 @@ def test_idempotency_replays_create_and_status_change_without_duplicate_audit():
             json={"status": "review", "comment": "Different payload"},
         )
         assert conflicting_status.status_code == 409
+        assert conflicting_status.json()["error"]["code"] == "conflict"
 
         history = client.get(
             f"/tasks/{task_id}/history",

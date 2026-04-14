@@ -2,11 +2,14 @@ import logging
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
+from sqlalchemy import text
+
+from shared.errors import register_error_handlers
 
 from .config import get_settings
-from .db import run_migrations
+from .db import engine, run_migrations
 from .routers import router as auth_router
 
 logging.basicConfig(
@@ -25,6 +28,7 @@ async def lifespan(_: FastAPI):
 
 settings = get_settings()
 app = FastAPI(title=settings.app_name, version="1.0.0", lifespan=lifespan)
+register_error_handlers(app)
 app.include_router(auth_router)
 
 
@@ -40,6 +44,16 @@ async def log_requests(request: Request, call_next):
 @app.get("/health", tags=["health"])
 def healthcheck():
     return {"status": "ok", "service": settings.app_name}
+
+
+@app.get("/readiness", tags=["health"])
+def readiness():
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database is not ready") from exc
+    return {"status": "ok", "service": settings.app_name, "database": "ok"}
 
 
 @app.get("/", include_in_schema=False)

@@ -15,7 +15,7 @@ from services.auth_service.app.main import app  # noqa: E402
 from services.auth_service.app.models import AuditLog  # noqa: E402
 
 
-def test_auth_roles_teams_refresh_and_audit_flow():
+def test_auth_roles_teams_refresh_audit_and_error_format_flow():
     with TestClient(app) as client:
         register_response = client.post(
             "/auth/register",
@@ -34,6 +34,10 @@ def test_auth_roles_teams_refresh_and_audit_flow():
         me_response = client.get("/auth/me", headers=admin_headers)
         assert me_response.status_code == 200
         assert me_response.json()["roles"] == ["user", "admin"]
+
+        readiness_response = client.get("/readiness")
+        assert readiness_response.status_code == 200
+        assert readiness_response.json()["database"] == "ok"
 
         create_team_response = client.post(
             "/teams",
@@ -80,6 +84,7 @@ def test_auth_roles_teams_refresh_and_audit_flow():
             },
         )
         assert forbidden_create_user.status_code == 403
+        assert forbidden_create_user.json()["error"]["code"] == "forbidden"
 
         forbidden_create_team = client.post(
             "/teams",
@@ -87,6 +92,7 @@ def test_auth_roles_teams_refresh_and_audit_flow():
             json={"name": "Frontend"},
         )
         assert forbidden_create_team.status_code == 403
+        assert forbidden_create_team.json()["error"]["code"] == "forbidden"
 
         list_users_response = client.get("/users", headers=admin_headers)
         assert list_users_response.status_code == 200
@@ -138,6 +144,7 @@ def test_auth_roles_teams_refresh_and_audit_flow():
             json={"refresh_token": refreshed_payload["refresh_token"]},
         )
         assert revoked_refresh_response.status_code == 401
+        assert revoked_refresh_response.json()["error"]["code"] == "unauthorized"
 
     db = SessionLocal()
     try:
