@@ -1,8 +1,21 @@
 from datetime import datetime
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 from .models import TaskPriority, TaskStatus
+
+
+class TaskSortBy(StrEnum):
+    CREATED_AT = "created_at"
+    UPDATED_AT = "updated_at"
+    DEADLINE = "deadline"
+    PRIORITY = "priority"
+
+
+class SortOrder(StrEnum):
+    ASC = "asc"
+    DESC = "desc"
 
 
 class TaskCreate(BaseModel):
@@ -42,6 +55,14 @@ class TaskResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class TaskListResponse(BaseModel):
+    items: list[TaskResponse]
+    total: int
+    page: int
+    page_size: int
+    pages: int
 
 
 class TaskStatusHistoryEntry(BaseModel):

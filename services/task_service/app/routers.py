@@ -1,13 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import or_, select
+from datetime import datetime
+from math import ceil
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from .db import get_db
-from .models import Task, TaskStatus, TaskStatusHistory
+from .models import Task, TaskPriority, TaskStatus, TaskStatusHistory
 from .schemas import (
     CurrentUser,
+    SortOrder,
     TaskCreate,
+    TaskListResponse,
     TaskResponse,
+    TaskSortBy,
     TaskStatusHistoryResponse,
     TaskStatusUpdate,
     TaskUpdate,
@@ -18,6 +24,8 @@ router = APIRouter(tags=["tasks"])
 
 ADMIN_ROLE = "admin"
 TEAMLEAD_ROLE = "teamlead"
+DEFAULT_PAGE_SIZE = 20
+MAX_PAGE_SIZE = 100
 
 ALLOWED_STATUS_TRANSITIONS = {
     TaskStatus.TODO: {TaskStatus.IN_PROGRESS, TaskStatus.CANCELLED},
@@ -55,6 +63,40 @@ def get_task_if_visible(*, db: Session, task_id: str, current_user: CurrentUser)
     return task
 
 
+def apply_visibility_scope(*, statement, current_user: CurrentUser):
+    if ADMIN_ROLE in current_user.roles:
+        return statement
+    if TEAMLEAD_ROLE in current_user.roles and current_user.team_ids:
+        return statement.where(Task.team_id.in_(current_user.team_ids))
+    return statement.where(or_(Task.owner_id == current_user.user_id, Task.assignee_id == current_user.user_id))
+
+
+def build_order_clauses(*, sort_by: TaskSortBy, sort_order: SortOrder):
+    descending = sort_order == SortOrder.DESC
+
+    if sort_by == TaskSortBy.PRIORITY:
+        priority_rank = case(
+            (Task.priority == TaskPriority.LOW.value, 1),
+            (Task.priority == TaskPriority.MEDIUM.value, 2),
+            (Task.priority == TaskPriority.HIGH.value, 3),
+            else_=99,
+        )
+        primary = priority_rank.desc() if descending else priority_rank.asc()
+        return [primary, Task.created_at.desc()]
+
+    if sort_by == TaskSortBy.DEADLINE:
+        deadline_present = case((Task.deadline.is_(None), 1), else_=0).asc()
+        primary = Task.deadline.desc() if descending else Task.deadline.asc()
+        return [deadline_present, primary, Task.created_at.desc()]
+
+    if sort_by == TaskSortBy.UPDATED_AT:
+        primary = Task.updated_at.desc() if descending else Task.updated_at.asc()
+        return [primary, Task.created_at.desc()]
+
+    primary = Task.created_at.desc() if descending else Task.created_at.asc()
+    return [primary, Task.id.asc()]
+
+
 @router.post("/tasks", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
 def create_task(
     payload: TaskCreate,
@@ -77,22 +119,49 @@ def create_task(
     return task
 
 
-@router.get("/tasks", response_model=list[TaskResponse])
+@router.get("/tasks", response_model=TaskListResponse)
 def list_tasks(
+    status_filter: TaskStatus | None = Query(default=None, alias="status"),
+    priority: TaskPriority | None = None,
+    deadline_from: datetime | None = None,
+    deadline_to: datetime | None = None,
+    assignee_id: str | None = Query(default=None, min_length=1, max_length=36),
+    owner_id: str | None = Query(default=None, min_length=1, max_length=36),
+    team_id: str | None = Query(default=None, min_length=1, max_length=36),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    sort_by: TaskSortBy = TaskSortBy.CREATED_AT,
+    sort_order: SortOrder = SortOrder.DESC,
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if ADMIN_ROLE in current_user.roles:
-        statement = select(Task).order_by(Task.created_at.desc())
-    elif TEAMLEAD_ROLE in current_user.roles and current_user.team_ids:
-        statement = select(Task).where(Task.team_id.in_(current_user.team_ids)).order_by(Task.created_at.desc())
-    else:
-        statement = select(Task).where(
-            or_(Task.owner_id == current_user.user_id, Task.assignee_id == current_user.user_id)
-        ).order_by(Task.created_at.desc())
+    statement = apply_visibility_scope(statement=select(Task), current_user=current_user)
 
-    tasks = db.scalars(statement).all()
-    return list(tasks)
+    if status_filter is not None:
+        statement = statement.where(Task.status == status_filter)
+    if priority is not None:
+        statement = statement.where(Task.priority == priority)
+    if deadline_from is not None:
+        statement = statement.where(Task.deadline.is_not(None), Task.deadline >= deadline_from)
+    if deadline_to is not None:
+        statement = statement.where(Task.deadline.is_not(None), Task.deadline <= deadline_to)
+    if assignee_id is not None:
+        statement = statement.where(Task.assignee_id == assignee_id.strip())
+    if owner_id is not None:
+        statement = statement.where(Task.owner_id == owner_id.strip())
+    if team_id is not None:
+        statement = statement.where(Task.team_id == team_id.strip())
+
+    total = db.scalar(select(func.count()).select_from(statement.order_by(None).subquery())) or 0
+    pages = ceil(total / page_size) if total else 0
+
+    tasks = db.scalars(
+        statement.order_by(*build_order_clauses(sort_by=sort_by, sort_order=sort_order))
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+
+    return TaskListResponse(items=list(tasks), total=total, page=page, page_size=page_size, pages=pages)
 
 
 @router.get("/tasks/{task_id}", response_model=TaskResponse)
