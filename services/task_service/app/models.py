@@ -11,7 +11,15 @@ from .db import Base
 class TaskStatus(StrEnum):
     TODO = "todo"
     IN_PROGRESS = "in_progress"
+    REVIEW = "review"
     DONE = "done"
+    CANCELLED = "cancelled"
+
+
+class TaskPriority(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
 
 
 class Task(Base):
@@ -19,9 +27,13 @@ class Task(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     owner_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    assignee_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    team_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default=TaskStatus.TODO, nullable=False)
+    priority: Mapped[str] = mapped_column(String(16), default=TaskPriority.MEDIUM, nullable=False)
+    deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -34,3 +46,18 @@ class Task(Base):
         nullable=False,
     )
 
+
+class TaskStatusHistory(Base):
+    __tablename__ = "task_status_history"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    task_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    from_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    to_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    changed_by: Mapped[str] = mapped_column(String(36), nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    changed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
