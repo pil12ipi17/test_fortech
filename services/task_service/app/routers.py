@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .db import get_db
-from .models import Task, TaskPriority, TaskStatus, TaskStatusHistory
+from .models import Task, TaskStatus, TaskStatusHistory
 from .schemas import (
     CurrentUser,
     TaskCreate,
@@ -16,6 +16,9 @@ from .security import get_current_user
 
 router = APIRouter(tags=["tasks"])
 
+ADMIN_ROLE = "admin"
+TEAMLEAD_ROLE = "teamlead"
+
 ALLOWED_STATUS_TRANSITIONS = {
     TaskStatus.TODO: {TaskStatus.IN_PROGRESS, TaskStatus.CANCELLED},
     TaskStatus.IN_PROGRESS: {TaskStatus.REVIEW, TaskStatus.CANCELLED},
@@ -25,9 +28,29 @@ ALLOWED_STATUS_TRANSITIONS = {
 }
 
 
-def get_owned_task(*, db: Session, task_id: str, user_id: str) -> Task:
-    task = db.scalar(select(Task).where(Task.id == task_id, Task.owner_id == user_id))
-    if task is None:
+def can_view_task(*, task: Task, current_user: CurrentUser) -> bool:
+    if ADMIN_ROLE in current_user.roles:
+        return True
+    if TEAMLEAD_ROLE in current_user.roles and task.team_id in current_user.team_ids:
+        return True
+    return current_user.user_id in {task.owner_id, task.assignee_id}
+
+
+def can_manage_task(*, task: Task, current_user: CurrentUser) -> bool:
+    return can_view_task(task=task, current_user=current_user)
+
+
+def can_delete_task(*, task: Task, current_user: CurrentUser) -> bool:
+    if ADMIN_ROLE in current_user.roles:
+        return True
+    if TEAMLEAD_ROLE in current_user.roles and task.team_id in current_user.team_ids:
+        return True
+    return current_user.user_id == task.owner_id
+
+
+def get_task_if_visible(*, db: Session, task_id: str, current_user: CurrentUser) -> Task:
+    task = db.get(Task, task_id)
+    if task is None or not can_view_task(task=task, current_user=current_user):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     return task
 
@@ -59,7 +82,16 @@ def list_tasks(
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    tasks = db.scalars(select(Task).where(Task.owner_id == current_user.user_id).order_by(Task.created_at.desc())).all()
+    if ADMIN_ROLE in current_user.roles:
+        statement = select(Task).order_by(Task.created_at.desc())
+    elif TEAMLEAD_ROLE in current_user.roles and current_user.team_ids:
+        statement = select(Task).where(Task.team_id.in_(current_user.team_ids)).order_by(Task.created_at.desc())
+    else:
+        statement = select(Task).where(
+            or_(Task.owner_id == current_user.user_id, Task.assignee_id == current_user.user_id)
+        ).order_by(Task.created_at.desc())
+
+    tasks = db.scalars(statement).all()
     return list(tasks)
 
 
@@ -69,7 +101,7 @@ def get_task(
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return get_owned_task(db=db, task_id=task_id, user_id=current_user.user_id)
+    return get_task_if_visible(db=db, task_id=task_id, current_user=current_user)
 
 
 @router.patch("/tasks/{task_id}", response_model=TaskResponse)
@@ -79,7 +111,9 @@ def update_task(
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    task = get_owned_task(db=db, task_id=task_id, user_id=current_user.user_id)
+    task = get_task_if_visible(db=db, task_id=task_id, current_user=current_user)
+    if not can_manage_task(task=task, current_user=current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Task update is forbidden")
 
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
@@ -102,7 +136,9 @@ def change_task_status(
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    task = get_owned_task(db=db, task_id=task_id, user_id=current_user.user_id)
+    task = get_task_if_visible(db=db, task_id=task_id, current_user=current_user)
+    if not can_manage_task(task=task, current_user=current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Task status update is forbidden")
 
     current_status = TaskStatus(task.status)
     target_status = payload.status
@@ -129,10 +165,10 @@ def get_task_history(
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    get_owned_task(db=db, task_id=task_id, user_id=current_user.user_id)
+    task = get_task_if_visible(db=db, task_id=task_id, current_user=current_user)
     history_entries = db.scalars(
         select(TaskStatusHistory)
-        .where(TaskStatusHistory.task_id == task_id)
+        .where(TaskStatusHistory.task_id == task.id)
         .order_by(TaskStatusHistory.changed_at.asc())
     ).all()
     return TaskStatusHistoryResponse(items=list(history_entries))
@@ -144,7 +180,9 @@ def delete_task(
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    task = get_owned_task(db=db, task_id=task_id, user_id=current_user.user_id)
+    task = get_task_if_visible(db=db, task_id=task_id, current_user=current_user)
+    if not can_delete_task(task=task, current_user=current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Task deletion is forbidden")
 
     db.delete(task)
     db.commit()

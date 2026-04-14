@@ -63,3 +63,5 @@ class TaskStatusHistoryResponse(BaseModel):
 class CurrentUser(BaseModel):
     user_id: str
     email: str | None = None
+    roles: list[str] = Field(default_factory=list)
+    team_ids: list[str] = Field(default_factory=list)
