@@ -8,9 +8,8 @@ WORKDIR /app
 COPY requirements/base.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
-COPY services/auth_service/app /app/app
+COPY services/auth_service /app
 
 EXPOSE 8001
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
-

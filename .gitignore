@@ -53,3 +53,4 @@ docker-compose.override.yml
 # Local project documentation and task statements
 docs/
 *.pdf
+pytest-cache-files-*
