@@ -9,6 +9,7 @@ COPY requirements/base.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY services/task_service /app
+COPY shared /app/shared
 
 EXPOSE 8002
 

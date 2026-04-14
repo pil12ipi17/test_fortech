@@ -8,8 +8,11 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 SERVICE_ROOT = Path(__file__).resolve().parents[1]
-REPO_ROOT = SERVICE_ROOT.parents[1]
-for candidate in (REPO_ROOT, SERVICE_ROOT):
+SEARCH_ROOTS = [SERVICE_ROOT]
+if len(SERVICE_ROOT.parents) > 1:
+    SEARCH_ROOTS.insert(0, SERVICE_ROOT.parents[1])
+
+for candidate in SEARCH_ROOTS:
     candidate_str = str(candidate)
     if candidate_str not in sys.path:
         sys.path.insert(0, candidate_str)
