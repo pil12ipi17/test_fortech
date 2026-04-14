@@ -7,10 +7,11 @@ MVP-реализация тестового задания на `FastAPI + Postg
 - `auth-service` для регистрации, логина, refresh/logout и получения текущего пользователя
 - `task-service` для CRUD задач
 - отдельная база данных для каждого сервиса
-- JWT-авторизация с access и refresh token
+- JWT-авторизация с `access_token` и `refresh_token`
 - Swagger UI у каждого сервиса
 - базовое логирование запросов
 - базовые тесты на ключевые сценарии
+- Alembic-миграции для `auth-service` и `task-service`
 
 ## Запуск
 
@@ -24,6 +25,29 @@ docker compose up --build
 - auth-service docs: `http://localhost:8001/docs`
 - task-service: `http://localhost:8002`
 - task-service docs: `http://localhost:8002/docs`
+
+При старте каждого сервиса автоматически применяется `alembic upgrade head` для его базы данных.
+
+## Миграции
+
+Для каждого сервиса используется свой Alembic-контур:
+
+- `services/auth_service/alembic.ini`
+- `services/task_service/alembic.ini`
+
+Текущие initial migrations фиксируют MVP-схему проекта.
+
+При необходимости миграции можно запускать вручную из корня проекта:
+
+```bash
+cd services/auth_service
+alembic upgrade head
+```
+
+```bash
+cd services/task_service
+alembic upgrade head
+```
 
 ## Основные эндпоинты
 
@@ -57,10 +81,11 @@ docker compose up --build
 
 ```bash
 python -m pip install -r requirements/dev.txt
-pytest
+python -m pytest
 ```
 
 ## Документация
 
 - архитектура: `docs/architecture.md`
 - структура БД: `docs/database.md`
+- рабочий план next-level: `docs/next-level-working-plan.md`
