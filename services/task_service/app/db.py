@@ -1,3 +1,7 @@
+from pathlib import Path
+
+from alembic import command
+from alembic.config import Config
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -14,8 +18,16 @@ engine = create_engine(settings.database_url, future=True, connect_args=connect_
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
 
-def init_db() -> None:
-    Base.metadata.create_all(bind=engine)
+def get_alembic_config() -> Config:
+    service_root = Path(__file__).resolve().parents[1]
+    config = Config(str(service_root / "alembic.ini"))
+    config.set_main_option("script_location", str(service_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", settings.database_url)
+    return config
+
+
+def run_migrations() -> None:
+    command.upgrade(get_alembic_config(), "head")
 
 
 def get_db():
@@ -24,4 +36,3 @@ def get_db():
         yield db
     finally:
         db.close()
-

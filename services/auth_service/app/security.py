@@ -52,6 +52,8 @@ def _create_token(
     token_type: str,
     expires_delta: timedelta,
     jti: str | None = None,
+    roles: list[str] | None = None,
+    team_ids: list[str] | None = None,
 ) -> tuple[str, datetime, str | None]:
     now = datetime.now(timezone.utc)
     payload = {
@@ -62,18 +64,31 @@ def _create_token(
         "iat": now,
         "exp": now + expires_delta,
     }
+    if roles is not None:
+        payload["roles"] = roles
+    if team_ids is not None:
+        payload["team_ids"] = team_ids
     if jti is not None:
         payload["jti"] = jti
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm), payload["exp"], jti
 
 
-def create_access_token(*, user_id: str, email: str, settings: Settings) -> str:
+def create_access_token(
+    *,
+    user_id: str,
+    email: str,
+    roles: list[str],
+    team_ids: list[str],
+    settings: Settings,
+) -> str:
     token, _, _ = _create_token(
         user_id=user_id,
         email=email,
         settings=settings,
         token_type=ACCESS_TOKEN_TYPE,
         expires_delta=timedelta(minutes=settings.access_token_expire_minutes),
+        roles=roles,
+        team_ids=team_ids,
     )
     return token
 
