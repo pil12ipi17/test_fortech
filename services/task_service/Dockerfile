@@ -8,9 +8,8 @@ WORKDIR /app
 COPY requirements/base.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
-COPY services/task_service/app /app/app
+COPY services/task_service /app
 
 EXPOSE 8002
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
-

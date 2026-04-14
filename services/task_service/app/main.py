@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 
 from .config import get_settings
-from .db import init_db
+from .db import run_migrations
 from .routers import router as task_router
 
 logging.basicConfig(
@@ -18,8 +18,8 @@ logger = logging.getLogger("task-service")
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    init_db()
-    logger.info("Database initialized")
+    run_migrations()
+    logger.info("Database migrations applied")
     yield
 
 
