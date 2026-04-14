@@ -2,12 +2,27 @@ import os
 from pathlib import Path
 
 import jwt
+import pytest
 from fastapi.testclient import TestClient
 
 os.environ["TASK_DATABASE_URL"] = f"sqlite+pysqlite:///{Path.cwd() / 'test_task_service.db'}"
 os.environ["TASK_JWT_SECRET"] = "test-secret"
 
+from services.task_service.app.db import SessionLocal  # noqa: E402
 from services.task_service.app.main import app  # noqa: E402
+from services.task_service.app.models import IdempotencyKey, Task, TaskStatusHistory  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def clear_task_tables():
+    db = SessionLocal()
+    try:
+        db.query(IdempotencyKey).delete()
+        db.query(TaskStatusHistory).delete()
+        db.query(Task).delete()
+        db.commit()
+    finally:
+        db.close()
 
 
 def make_token(
@@ -114,12 +129,11 @@ def test_task_rbac_across_owner_assignee_teamlead_and_admin():
         deleted_task_response = client.get(f"/tasks/{task_id}", headers={"Authorization": f"Bearer {owner_token}"})
         assert deleted_task_response.status_code == 404
 
-
 def test_task_list_supports_filters_pagination_and_sorting():
-    owner_token = make_token("user-1", "owner@example.com", roles=["user"], team_ids=["team-1"])
-    teamlead_token = make_token("user-3", "lead@example.com", roles=["teamlead"], team_ids=["team-1"])
-    outsider_token = make_token("user-5", "other@example.com", roles=["user"], team_ids=["team-2"])
-    admin_token = make_token("user-4", "admin@example.com", roles=["admin"], team_ids=[])
+    owner_token = make_token("user-11", "owner2@example.com", roles=["user"], team_ids=["team-11"])
+    teamlead_token = make_token("user-13", "lead2@example.com", roles=["teamlead"], team_ids=["team-11"])
+    outsider_token = make_token("user-15", "other2@example.com", roles=["user"], team_ids=["team-22"])
+    admin_token = make_token("user-14", "admin2@example.com", roles=["admin"], team_ids=[])
 
     with TestClient(app) as client:
         high_priority = client.post(
@@ -128,8 +142,8 @@ def test_task_list_supports_filters_pagination_and_sorting():
             json={
                 "title": "High priority",
                 "description": "Visible to teamlead",
-                "assignee_id": "user-2",
-                "team_id": "team-1",
+                "assignee_id": "user-12",
+                "team_id": "team-11",
                 "priority": "high",
                 "deadline": "2026-04-30T18:00:00Z",
             },
@@ -143,8 +157,8 @@ def test_task_list_supports_filters_pagination_and_sorting():
             json={
                 "title": "Low priority",
                 "description": "No deadline",
-                "assignee_id": "user-1",
-                "team_id": "team-1",
+                "assignee_id": "user-11",
+                "team_id": "team-11",
                 "priority": "low"
             },
         )
@@ -157,8 +171,8 @@ def test_task_list_supports_filters_pagination_and_sorting():
             json={
                 "title": "External team",
                 "description": "Must stay invisible for teamlead",
-                "assignee_id": "user-5",
-                "team_id": "team-2",
+                "assignee_id": "user-15",
+                "team_id": "team-22",
                 "priority": "medium",
                 "deadline": "2026-05-05T18:00:00Z",
             },
@@ -181,7 +195,7 @@ def test_task_list_supports_filters_pagination_and_sorting():
         assert filtered_by_status.json()["items"][0]["id"] == high_task_id
 
         filtered_by_owner = client.get(
-            "/tasks?owner_id=user-1",
+            "/tasks?owner_id=user-11",
             headers={"Authorization": f"Bearer {teamlead_token}"},
         )
         assert filtered_by_owner.status_code == 200
@@ -218,9 +232,78 @@ def test_task_list_supports_filters_pagination_and_sorting():
         assert deadline_sorted.json()["items"][1]["deadline"] is None
 
         admin_all_tasks = client.get(
-            "/tasks?team_id=team-2",
+            "/tasks?team_id=team-22",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert admin_all_tasks.status_code == 200
         assert admin_all_tasks.json()["total"] == 1
-        assert admin_all_tasks.json()["items"][0]["team_id"] == "team-2"
+        assert admin_all_tasks.json()["items"][0]["team_id"] == "team-22"
+
+def test_idempotency_replays_create_and_status_change():
+    owner_token = make_token("user-21", "owner3@example.com", roles=["user"], team_ids=["team-31"])
+
+    with TestClient(app) as client:
+        create_payload = {
+            "title": "Idempotent task",
+            "description": "Create must not duplicate",
+            "assignee_id": "user-22",
+            "team_id": "team-31",
+            "priority": "high",
+            "deadline": "2026-06-01T12:00:00Z",
+        }
+        create_headers = {
+            "Authorization": f"Bearer {owner_token}",
+            "Idempotency-Key": "create-key-1",
+        }
+
+        first_create = client.post("/tasks", headers=create_headers, json=create_payload)
+        assert first_create.status_code == 201
+        task_id = first_create.json()["id"]
+
+        repeated_create = client.post("/tasks", headers=create_headers, json=create_payload)
+        assert repeated_create.status_code == 201
+        assert repeated_create.json() == first_create.json()
+
+        conflicting_create = client.post(
+            "/tasks",
+            headers=create_headers,
+            json={**create_payload, "title": "Different payload"},
+        )
+        assert conflicting_create.status_code == 409
+
+        owner_tasks = client.get(
+            "/tasks?owner_id=user-21",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+        assert owner_tasks.status_code == 200
+        assert owner_tasks.json()["total"] == 1
+        assert owner_tasks.json()["items"][0]["id"] == task_id
+
+        status_headers = {
+            "Authorization": f"Bearer {owner_token}",
+            "Idempotency-Key": "status-key-1",
+        }
+        status_payload = {"status": "in_progress", "comment": "Start once"}
+
+        first_status = client.patch(f"/tasks/{task_id}/status", headers=status_headers, json=status_payload)
+        assert first_status.status_code == 200
+        assert first_status.json()["status"] == "in_progress"
+
+        repeated_status = client.patch(f"/tasks/{task_id}/status", headers=status_headers, json=status_payload)
+        assert repeated_status.status_code == 200
+        assert repeated_status.json() == first_status.json()
+
+        conflicting_status = client.patch(
+            f"/tasks/{task_id}/status",
+            headers=status_headers,
+            json={"status": "review", "comment": "Different payload"},
+        )
+        assert conflicting_status.status_code == 409
+
+        history = client.get(
+            f"/tasks/{task_id}/history",
+            headers={"Authorization": f"Bearer {owner_token}"},
+        )
+        assert history.status_code == 200
+        assert len(history.json()["items"]) == 1
+        assert history.json()["items"][0]["to_status"] == "in_progress"
