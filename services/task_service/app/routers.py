@@ -9,7 +9,7 @@ from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from .db import get_db
-from .models import IdempotencyKey, Task, TaskPriority, TaskStatus, TaskStatusHistory
+from .models import AuditLog, IdempotencyKey, Task, TaskPriority, TaskStatus, TaskStatusHistory
 from .schemas import (
     CurrentUser,
     SortOrder,
@@ -109,10 +109,35 @@ def ensure_utc(value: datetime) -> datetime:
     return value.astimezone(UTC)
 
 
+def serialize_details(details: dict | None) -> str:
+    return json.dumps(details or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def add_audit_log(
+    *,
+    db: Session,
+    actor_user_id: str | None,
+    action: str,
+    target_type: str,
+    target_id: str | None,
+    details: dict | None = None,
+    result: str = "success",
+) -> None:
+    db.add(
+        AuditLog(
+            actor_user_id=actor_user_id,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
+            result=result,
+            details_json=serialize_details(details),
+        )
+    )
+
+
 def compute_request_hash(payload: dict) -> str:
     serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-
 
 def get_active_idempotency_record(
     *,
@@ -240,9 +265,24 @@ def create_task(
             )
         )
 
+    add_audit_log(
+        db=db,
+        actor_user_id=current_user.user_id,
+        action="task.created",
+        target_type="task",
+        target_id=task.id,
+        details={
+            "assignee_id": task.assignee_id,
+            "team_id": task.team_id,
+            "status": task.status,
+            "priority": task.priority,
+        },
+    )
     db.commit()
     db.refresh(task)
     return task
+
+
 @router.get("/tasks", response_model=TaskListResponse)
 def list_tasks(
     status_filter: TaskStatus | None = Query(default=None, alias="status"),
@@ -296,7 +336,6 @@ def get_task(
 ):
     return get_task_if_visible(db=db, task_id=task_id, current_user=current_user)
 
-
 @router.patch("/tasks/{task_id}", response_model=TaskResponse)
 def update_task(
     task_id: str,
@@ -312,11 +351,21 @@ def update_task(
     if not changes:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No task fields provided")
 
+    normalized_changes: dict[str, object] = {}
     for field, value in changes.items():
         if field in {"title", "assignee_id", "team_id"} and value is not None:
             value = value.strip()
         setattr(task, field, value)
+        normalized_changes[field] = value
 
+    add_audit_log(
+        db=db,
+        actor_user_id=current_user.user_id,
+        action="task.updated",
+        target_type="task",
+        target_id=task.id,
+        details={"changes": normalized_changes},
+    )
     db.commit()
     db.refresh(task)
     return task
@@ -376,9 +425,19 @@ def change_task_status(
             )
         )
 
+    add_audit_log(
+        db=db,
+        actor_user_id=current_user.user_id,
+        action="task.status_changed",
+        target_type="task",
+        target_id=task.id,
+        details={"from": current_status.value, "to": target_status.value, "comment": payload.comment},
+    )
     db.commit()
     db.refresh(task)
     return task
+
+
 @router.get("/tasks/{task_id}/history", response_model=TaskStatusHistoryResponse)
 def get_task_history(
     task_id: str,
@@ -404,6 +463,14 @@ def delete_task(
     if not can_delete_task(task=task, current_user=current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Task deletion is forbidden")
 
+    add_audit_log(
+        db=db,
+        actor_user_id=current_user.user_id,
+        action="task.deleted",
+        target_type="task",
+        target_id=task.id,
+        details={"team_id": task.team_id, "owner_id": task.owner_id, "assignee_id": task.assignee_id},
+    )
     db.delete(task)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

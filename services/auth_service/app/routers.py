@@ -1,3 +1,4 @@
+import json
 import math
 from datetime import datetime, timezone
 
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from .config import Settings, get_settings
 from .db import get_db
-from .models import RefreshTokenSession, Role, RoleCode, Team, TeamMembership, User, UserRole
+from .models import AuditLog, RefreshTokenSession, Role, RoleCode, Team, TeamMembership, User, UserRole
 from .schemas import (
     AdminUserCreate,
     AuthResponse,
@@ -46,8 +47,6 @@ auth_router = APIRouter(prefix="/auth", tags=["auth"])
 users_router = APIRouter(prefix="/users", tags=["users"])
 teams_router = APIRouter(prefix="/teams", tags=["teams"])
 bearer_scheme = HTTPBearer(auto_error=False)
-
-
 
 
 def ensure_utc(dt: datetime) -> datetime:
@@ -114,6 +113,32 @@ def paginate(*, total: int, page: int, page_size: int) -> tuple[int, int]:
     pages = math.ceil(total / page_size) if total else 0
     offset = (page - 1) * page_size
     return pages, offset
+
+
+def serialize_details(details: dict | None) -> str:
+    return json.dumps(details or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def add_audit_log(
+    *,
+    db: Session,
+    actor_user_id: str | None,
+    action: str,
+    target_type: str,
+    target_id: str | None,
+    details: dict | None = None,
+    result: str = "success",
+) -> None:
+    db.add(
+        AuditLog(
+            actor_user_id=actor_user_id,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
+            result=result,
+            details_json=serialize_details(details),
+        )
+    )
 
 
 def resolve_roles(*, db: Session, role_codes: list[str]) -> list[Role]:
@@ -195,7 +220,6 @@ def build_auth_response(*, user: User, db: Session, settings: Settings) -> AuthR
         user=build_user_response(user=user, db=db),
     )
 
-
 def get_refresh_session(*, db: Session, refresh_token: str, payload: dict) -> RefreshTokenSession | None:
     session = db.scalar(
         select(RefreshTokenSession).where(
@@ -265,7 +289,17 @@ def register_user(
     db.commit()
     db.refresh(user)
 
-    return build_auth_response(user=user, db=db, settings=settings)
+    response = build_auth_response(user=user, db=db, settings=settings)
+    add_audit_log(
+        db=db,
+        actor_user_id=user.id,
+        action="auth.register",
+        target_type="user",
+        target_id=user.id,
+        details={"email": user.email, "roles": response.user.roles},
+    )
+    db.commit()
+    return response
 
 
 @auth_router.post("/login", response_model=AuthResponse)
@@ -279,7 +313,17 @@ def login_user(
     if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    return build_auth_response(user=user, db=db, settings=settings)
+    response = build_auth_response(user=user, db=db, settings=settings)
+    add_audit_log(
+        db=db,
+        actor_user_id=user.id,
+        action="auth.login",
+        target_type="user",
+        target_id=user.id,
+        details={"email": user.email},
+    )
+    db.commit()
+    return response
 
 
 @auth_router.post("/refresh", response_model=AuthResponse)
@@ -304,7 +348,17 @@ def refresh_tokens(
 
     session.revoked_at = now
     db.flush()
-    return build_auth_response(user=user, db=db, settings=settings)
+    response = build_auth_response(user=user, db=db, settings=settings)
+    add_audit_log(
+        db=db,
+        actor_user_id=user.id,
+        action="auth.refresh",
+        target_type="user",
+        target_id=user.id,
+        details={"email": user.email},
+    )
+    db.commit()
+    return response
 
 
 @auth_router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -321,6 +375,14 @@ def logout_user(
     session = get_refresh_session(db=db, refresh_token=payload.refresh_token, payload=token_payload)
     if session is not None and session.revoked_at is None:
         session.revoked_at = datetime.now(timezone.utc)
+        add_audit_log(
+            db=db,
+            actor_user_id=token_payload.get("sub"),
+            action="auth.logout",
+            target_type="refresh_session",
+            target_id=session.id,
+            details={"user_id": token_payload.get("sub")},
+        )
         db.commit()
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -372,7 +434,6 @@ def list_users(
         pages=pages,
     )
 
-
 @users_router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user_by_admin(
     payload: AdminUserCreate,
@@ -393,6 +454,14 @@ def create_user_by_admin(
     db.flush()
     set_user_roles(db=db, user=user, roles=roles, assigned_by=principal.user_id)
     add_user_to_teams(db=db, user=user, teams=teams)
+    add_audit_log(
+        db=db,
+        actor_user_id=principal.user_id,
+        action="user.created",
+        target_type="user",
+        target_id=user.id,
+        details={"email": normalized_email, "roles": payload.roles, "team_ids": payload.team_ids},
+    )
     db.commit()
     db.refresh(user)
     return build_user_response(user=user, db=db)
@@ -411,8 +480,17 @@ def replace_user_roles(
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+    previous_roles = get_user_role_codes(db, user.id)
     roles = resolve_roles(db=db, role_codes=payload.roles)
     set_user_roles(db=db, user=user, roles=roles, assigned_by=principal.user_id)
+    add_audit_log(
+        db=db,
+        actor_user_id=principal.user_id,
+        action="user.roles_updated",
+        target_type="user",
+        target_id=user.id,
+        details={"before": previous_roles, "after": payload.roles},
+    )
     db.commit()
     db.refresh(user)
     return build_user_response(user=user, db=db)
@@ -459,6 +537,15 @@ def create_team(
 
     team = Team(name=normalized_name)
     db.add(team)
+    db.flush()
+    add_audit_log(
+        db=db,
+        actor_user_id=principal.user_id,
+        action="team.created",
+        target_type="team",
+        target_id=team.id,
+        details={"name": normalized_name},
+    )
     db.commit()
     db.refresh(team)
     return build_team_response(team=team, db=db)
@@ -489,6 +576,15 @@ def add_team_member(
 
     membership = TeamMembership(user_id=payload.user_id, team_id=team_id)
     db.add(membership)
+    db.flush()
+    add_audit_log(
+        db=db,
+        actor_user_id=principal.user_id,
+        action="team.member_added",
+        target_type="team_membership",
+        target_id=membership.id,
+        details={"team_id": team_id, "user_id": payload.user_id},
+    )
     db.commit()
     db.refresh(membership)
     return TeamMembershipResponse(team_id=team_id, user_id=payload.user_id, added_at=membership.created_at)
@@ -509,9 +605,18 @@ def remove_team_member(
     if membership is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team membership not found")
 
+    add_audit_log(
+        db=db,
+        actor_user_id=principal.user_id,
+        action="team.member_removed",
+        target_type="team_membership",
+        target_id=membership.id,
+        details={"team_id": team_id, "user_id": user_id},
+    )
     db.delete(membership)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
 
 for child_router in (auth_router, users_router, teams_router):
     router.include_router(child_router)

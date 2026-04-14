@@ -10,10 +10,12 @@ if TEST_DB.exists():
 os.environ["AUTH_DATABASE_URL"] = f"sqlite:///{TEST_DB.resolve().as_posix()}"
 os.environ["AUTH_JWT_SECRET"] = "test-secret"
 
+from services.auth_service.app.db import SessionLocal  # noqa: E402
 from services.auth_service.app.main import app  # noqa: E402
+from services.auth_service.app.models import AuditLog  # noqa: E402
 
 
-def test_auth_roles_teams_and_refresh_flow():
+def test_auth_roles_teams_refresh_and_audit_flow():
     with TestClient(app) as client:
         register_response = client.post(
             "/auth/register",
@@ -136,3 +138,17 @@ def test_auth_roles_teams_and_refresh_flow():
             json={"refresh_token": refreshed_payload["refresh_token"]},
         )
         assert revoked_refresh_response.status_code == 401
+
+    db = SessionLocal()
+    try:
+        actions = db.query(AuditLog.action).order_by(AuditLog.created_at.asc()).all()
+        action_list = [action for (action,) in actions]
+        assert "auth.register" in action_list
+        assert "team.created" in action_list
+        assert "user.created" in action_list
+        assert "user.roles_updated" in action_list
+        assert "auth.login" in action_list
+        assert "auth.refresh" in action_list
+        assert "auth.logout" in action_list
+    finally:
+        db.close()

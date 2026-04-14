@@ -8,15 +8,17 @@ from fastapi.testclient import TestClient
 os.environ["TASK_DATABASE_URL"] = f"sqlite+pysqlite:///{Path.cwd() / 'test_task_service.db'}"
 os.environ["TASK_JWT_SECRET"] = "test-secret"
 
-from services.task_service.app.db import SessionLocal  # noqa: E402
+from services.task_service.app.db import SessionLocal, run_migrations  # noqa: E402
 from services.task_service.app.main import app  # noqa: E402
-from services.task_service.app.models import IdempotencyKey, Task, TaskStatusHistory  # noqa: E402
+from services.task_service.app.models import AuditLog, IdempotencyKey, Task, TaskStatusHistory  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def clear_task_tables():
+    run_migrations()
     db = SessionLocal()
     try:
+        db.query(AuditLog).delete()
         db.query(IdempotencyKey).delete()
         db.query(TaskStatusHistory).delete()
         db.query(Task).delete()
@@ -43,7 +45,7 @@ def make_token(
     return jwt.encode(payload, "test-secret", algorithm="HS256")
 
 
-def test_task_rbac_across_owner_assignee_teamlead_and_admin():
+def test_task_rbac_and_audit_across_owner_assignee_teamlead_and_admin():
     owner_token = make_token("user-1", "owner@example.com", roles=["user"], team_ids=["team-1"])
     assignee_token = make_token("user-2", "assignee@example.com", roles=["user"], team_ids=["team-1"])
     teamlead_token = make_token("user-3", "lead@example.com", roles=["teamlead"], team_ids=["team-1"])
@@ -128,6 +130,18 @@ def test_task_rbac_across_owner_assignee_teamlead_and_admin():
 
         deleted_task_response = client.get(f"/tasks/{task_id}", headers={"Authorization": f"Bearer {owner_token}"})
         assert deleted_task_response.status_code == 404
+
+    db = SessionLocal()
+    try:
+        actions = db.query(AuditLog.action).order_by(AuditLog.created_at.asc()).all()
+        action_list = [action for (action,) in actions]
+        assert action_list.count("task.created") == 1
+        assert action_list.count("task.updated") == 1
+        assert action_list.count("task.status_changed") == 1
+        assert action_list.count("task.deleted") == 1
+    finally:
+        db.close()
+
 
 def test_task_list_supports_filters_pagination_and_sorting():
     owner_token = make_token("user-11", "owner2@example.com", roles=["user"], team_ids=["team-11"])
@@ -239,7 +253,8 @@ def test_task_list_supports_filters_pagination_and_sorting():
         assert admin_all_tasks.json()["total"] == 1
         assert admin_all_tasks.json()["items"][0]["team_id"] == "team-22"
 
-def test_idempotency_replays_create_and_status_change():
+
+def test_idempotency_replays_create_and_status_change_without_duplicate_audit():
     owner_token = make_token("user-21", "owner3@example.com", roles=["user"], team_ids=["team-31"])
 
     with TestClient(app) as client:
@@ -307,3 +322,12 @@ def test_idempotency_replays_create_and_status_change():
         assert history.status_code == 200
         assert len(history.json()["items"]) == 1
         assert history.json()["items"][0]["to_status"] == "in_progress"
+
+    db = SessionLocal()
+    try:
+        create_count = db.query(AuditLog).filter(AuditLog.action == "task.created").count()
+        status_count = db.query(AuditLog).filter(AuditLog.action == "task.status_changed").count()
+        assert create_count == 1
+        assert status_count == 1
+    finally:
+        db.close()
