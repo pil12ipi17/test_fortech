@@ -27,4 +27,9 @@ def get_current_user(
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from exc
 
-    return CurrentUser(user_id=payload["sub"], email=payload.get("email"))
+    return CurrentUser(
+        user_id=payload["sub"],
+        email=payload.get("email"),
+        roles=list(payload.get("roles") or []),
+        team_ids=list(payload.get("team_ids") or []),
+    )
