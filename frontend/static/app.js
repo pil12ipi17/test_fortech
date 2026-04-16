@@ -50,6 +50,8 @@ const elements = {
   createAdminUserForm: document.getElementById("createAdminUserForm"),
   createTeamForm: document.getElementById("createTeamForm"),
   addTeamMemberForm: document.getElementById("addTeamMemberForm"),
+  updateUserRolesForm: document.getElementById("updateUserRolesForm"),
+  removeTeamMemberForm: document.getElementById("removeTeamMemberForm"),
   reloadTasksButton: document.getElementById("reloadTasksButton"),
   resetFiltersButton: document.getElementById("resetFiltersButton"),
   refreshButton: document.getElementById("refreshButton"),
@@ -113,6 +115,8 @@ function bindEvents() {
   elements.createAdminUserForm.addEventListener("submit", handleAdminUserCreate);
   elements.createTeamForm.addEventListener("submit", handleTeamCreate);
   elements.addTeamMemberForm.addEventListener("submit", handleTeamMemberCreate);
+  elements.updateUserRolesForm.addEventListener("submit", handleUserRolesUpdate);
+  elements.removeTeamMemberForm.addEventListener("submit", handleTeamMemberRemove);
   elements.reloadTasksButton.addEventListener("click", () => loadTasks().catch(handleApiError));
   elements.refreshButton.addEventListener("click", handleRefresh);
   elements.logoutButton.addEventListener("click", handleLogout);
@@ -329,6 +333,53 @@ async function handleTeamMemberCreate(event) {
   event.currentTarget.reset();
   await loadReferenceData();
   showBanner("Участник добавлен в команду.", "success");
+}
+
+async function handleUserRolesUpdate(event) {
+  event.preventDefault();
+  clearBanner();
+
+  const form = event.currentTarget;
+  const formData = new FormData(form);
+  const userId = resolveUserReference(String(formData.get("user_id") || "").trim());
+  const roles = Array.from(form.querySelectorAll('input[name="roles"]:checked')).map((input) => input.value);
+
+  if (!roles.length) {
+    showBanner("Для обновления нужно выбрать хотя бы одну роль.");
+    return;
+  }
+
+  const user = await apiFetch(`/users/${userId}/roles`, {
+    method: "PATCH",
+    body: JSON.stringify({ roles }),
+    headers: { "Content-Type": "application/json" },
+  });
+
+  form.reset();
+  await loadReferenceData();
+  if (state.user?.id === user.id) {
+    state.user = user;
+    localStorage.setItem(storageKeys.user, JSON.stringify(user));
+    renderSession();
+  }
+  showBanner(`Роли пользователя ${user.email} обновлены.`, "success");
+}
+
+async function handleTeamMemberRemove(event) {
+  event.preventDefault();
+  clearBanner();
+
+  const formData = new FormData(event.currentTarget);
+  const teamId = resolveTeamReference(String(formData.get("team_id") || "").trim());
+  const userId = resolveUserReference(String(formData.get("user_id") || "").trim());
+
+  await apiFetch(`/teams/${teamId}/members/${userId}`, {
+    method: "DELETE",
+  });
+
+  event.currentTarget.reset();
+  await loadReferenceData();
+  showBanner("Участник удалён из команды.", "success");
 }
 
 async function handleStatusChange(taskId, form) {
@@ -841,10 +892,4 @@ function readStoredUser() {
     return null;
   }
 }
-
-
-
-
-
-
 

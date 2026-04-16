@@ -314,6 +314,26 @@
 
               <section class="panel">
                 <div class="panel-head">
+                  <h2>Обновление ролей пользователя</h2>
+                  <p>Админский сценарий через <code>PATCH /users/{user_id}/roles</code>.</p>
+                </div>
+                <form id="updateUserRolesForm" class="stack-form">
+                  <label>
+                    <span>User ID</span>
+                    <input name="user_id" placeholder="user-id или email" list="userIdSuggestions" required />
+                  </label>
+                  <fieldset class="checkbox-group">
+                    <legend>Новые роли</legend>
+                    <label><input type="checkbox" name="roles" value="user" checked /> <span>user</span></label>
+                    <label><input type="checkbox" name="roles" value="teamlead" /> <span>teamlead</span></label>
+                    <label><input type="checkbox" name="roles" value="admin" /> <span>admin</span></label>
+                  </fieldset>
+                  <button type="submit">Обновить роли</button>
+                </form>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head">
                   <h2>Создание команды</h2>
                   <p>Админский сценарий через <code>POST /teams</code>.</p>
                 </div>
@@ -341,6 +361,24 @@
                     <input name="user_id" placeholder="user-id или email" list="userIdSuggestions" required />
                   </label>
                   <button type="submit">Добавить участника</button>
+                </form>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head">
+                  <h2>Удаление участника из команды</h2>
+                  <p>Админский сценарий через <code>DELETE /teams/{team_id}/members/{user_id}</code>.</p>
+                </div>
+                <form id="removeTeamMemberForm" class="stack-form">
+                  <label>
+                    <span>Team ID</span>
+                    <input name="team_id" placeholder="team-id или название" list="teamIdSuggestions" required />
+                  </label>
+                  <label>
+                    <span>User ID</span>
+                    <input name="user_id" placeholder="user-id или email" list="userIdSuggestions" required />
+                  </label>
+                  <button type="submit">Удалить участника</button>
                 </form>
               </section>
             </div>
