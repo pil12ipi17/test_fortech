@@ -5,11 +5,30 @@ const storageKeys = {
   user: "task_console_user",
 };
 
+const screenMeta = {
+  tasks: {
+    title: "Список задач",
+    subtitle: "Фильтруй данные, отслеживай lifecycle и меняй статусы через реальные backend-контракты.",
+  },
+  create: {
+    title: "Создание задачи",
+    subtitle: "Новый таск отправляется в task-service с idempotency key и обычной backend-валидацией.",
+  },
+  reference: {
+    title: "Справочник пользователей и команд",
+    subtitle: "Этот экран помогает найти рабочие ID, чтобы не вводить значения вручную вслепую.",
+  },
+};
+
 const state = {
   accessToken: localStorage.getItem(storageKeys.accessToken),
   refreshToken: localStorage.getItem(storageKeys.refreshToken),
   user: readStoredUser(),
   tasks: [],
+  users: [],
+  teams: [],
+  userDirectoryState: "idle",
+  teamDirectoryState: "idle",
   activeScreen: "tasks",
   authMode: "login",
 };
@@ -29,9 +48,12 @@ const elements = {
   logoutButton: document.getElementById("logoutButton"),
   openTasksViewButton: document.getElementById("openTasksViewButton"),
   openCreateViewButton: document.getElementById("openCreateViewButton"),
+  openReferenceViewButton: document.getElementById("openReferenceViewButton"),
   tasksScreen: document.getElementById("tasksScreen"),
   createScreen: document.getElementById("createScreen"),
+  referenceScreen: document.getElementById("referenceScreen"),
   screenTitle: document.getElementById("screenTitle"),
+  screenSubtitle: document.getElementById("screenSubtitle"),
   tasksList: document.getElementById("tasksList"),
   tasksMeta: document.getElementById("tasksMeta"),
   errorBanner: document.getElementById("errorBanner"),
@@ -40,6 +62,13 @@ const elements = {
   sessionTeams: document.getElementById("sessionTeams"),
   connectionBadge: document.getElementById("connectionBadge"),
   taskCardTemplate: document.getElementById("taskCardTemplate"),
+  referenceItemTemplate: document.getElementById("referenceItemTemplate"),
+  usersReference: document.getElementById("usersReference"),
+  teamsReference: document.getElementById("teamsReference"),
+  usersAccessBadge: document.getElementById("usersAccessBadge"),
+  teamsAccessBadge: document.getElementById("teamsAccessBadge"),
+  userIdSuggestions: document.getElementById("userIdSuggestions"),
+  teamIdSuggestions: document.getElementById("teamIdSuggestions"),
 };
 
 bootstrap();
@@ -49,15 +78,17 @@ async function bootstrap() {
   renderAuthMode();
   renderSession();
   setScreen(state.activeScreen);
+  renderReferenceData();
 
-  if (state.accessToken) {
-    try {
-      await loadCurrentUser();
-      await loadTasks();
-    } catch (error) {
-      clearSession();
-      handleApiError(error);
-    }
+  if (!state.accessToken) {
+    return;
+  }
+
+  try {
+    await hydrateWorkspace();
+  } catch (error) {
+    clearSession();
+    handleApiError(error);
   }
 }
 
@@ -74,12 +105,18 @@ function bindEvents() {
   elements.logoutButton.addEventListener("click", handleLogout);
   elements.openTasksViewButton.addEventListener("click", () => setScreen("tasks"));
   elements.openCreateViewButton.addEventListener("click", () => setScreen("create"));
+  elements.openReferenceViewButton.addEventListener("click", () => setScreen("reference"));
+}
+
+async function hydrateWorkspace() {
+  await loadCurrentUser();
+  await Promise.all([loadTasks(), loadReferenceData()]);
 }
 
 function setAuthMode(mode) {
   state.authMode = mode;
   renderAuthMode();
-  clearError();
+  clearBanner();
 }
 
 function renderAuthMode() {
@@ -92,12 +129,16 @@ function renderAuthMode() {
 
 function setScreen(screen) {
   state.activeScreen = screen;
-  const showTasks = screen === "tasks";
-  elements.tasksScreen.classList.toggle("hidden", !showTasks);
-  elements.createScreen.classList.toggle("hidden", showTasks);
-  elements.openTasksViewButton.classList.toggle("active", showTasks);
-  elements.openCreateViewButton.classList.toggle("active", !showTasks);
-  elements.screenTitle.textContent = showTasks ? "Список задач" : "Создание задачи";
+  elements.tasksScreen.classList.toggle("hidden", screen !== "tasks");
+  elements.createScreen.classList.toggle("hidden", screen !== "create");
+  elements.referenceScreen.classList.toggle("hidden", screen !== "reference");
+  elements.openTasksViewButton.classList.toggle("active", screen === "tasks");
+  elements.openCreateViewButton.classList.toggle("active", screen === "create");
+  elements.openReferenceViewButton.classList.toggle("active", screen === "reference");
+
+  const meta = screenMeta[screen];
+  elements.screenTitle.textContent = meta.title;
+  elements.screenSubtitle.textContent = meta.subtitle;
 }
 
 async function handleLogin(event) {
@@ -121,7 +162,7 @@ async function handleRegister(event) {
 }
 
 async function authRequest(path, payload) {
-  clearError();
+  clearBanner();
   const response = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -134,20 +175,20 @@ async function authRequest(path, payload) {
   }
 
   applySession(data);
-  await loadCurrentUser();
-  await loadTasks();
+  await hydrateWorkspace();
   setScreen("tasks");
+  showBanner("Сессия успешно открыта.", "success");
 }
 
 async function handleRefresh() {
-  clearError();
+  clearBanner();
   await refreshSession();
-  await loadCurrentUser();
-  await loadTasks();
+  await hydrateWorkspace();
+  showBanner("Токены обновлены.", "success");
 }
 
 async function handleLogout() {
-  clearError();
+  clearBanner();
   if (state.refreshToken) {
     await fetch(`${API_BASE}/auth/logout`, {
       method: "POST",
@@ -158,11 +199,12 @@ async function handleLogout() {
 
   clearSession();
   setAuthMode("login");
+  showBanner("Сессия завершена.", "success");
 }
 
 async function handleFiltersSubmit(event) {
   event.preventDefault();
-  clearError();
+  clearBanner();
   await loadTasks();
 }
 
@@ -172,7 +214,8 @@ function handleFiltersReset() {
 
 async function handleCreateTask(event) {
   event.preventDefault();
-  clearError();
+  clearBanner();
+
   const formData = new FormData(event.currentTarget);
   const deadline = formData.get("deadline");
   const payload = {
@@ -184,7 +227,7 @@ async function handleCreateTask(event) {
     deadline: deadline ? new Date(String(deadline)).toISOString() : null,
   };
 
-  await apiFetch("/tasks", {
+  const task = await apiFetch("/tasks", {
     method: "POST",
     body: JSON.stringify(payload),
     headers: {
@@ -196,10 +239,11 @@ async function handleCreateTask(event) {
   event.currentTarget.reset();
   setScreen("tasks");
   await loadTasks();
+  showBanner(`Задача «${task.title}» создана.`, "success");
 }
 
 async function handleStatusChange(taskId, form) {
-  clearError();
+  clearBanner();
   const formData = new FormData(form);
   const payload = {
     status: formData.get("status"),
@@ -216,6 +260,7 @@ async function handleStatusChange(taskId, form) {
   });
 
   await loadTasks();
+  showBanner(`Статус задачи обновлён до ${payload.status}.`, "success");
 }
 
 async function loadCurrentUser() {
@@ -242,7 +287,31 @@ async function loadTasks() {
   renderTasks(result);
 }
 
-async function apiFetch(path, options = {}, allowRetry = true) {
+async function loadReferenceData() {
+  state.userDirectoryState = "loading";
+  state.teamDirectoryState = "loading";
+  renderReferenceData();
+
+  try {
+    state.users = await apiFetch("/users", {}, true, true);
+    state.userDirectoryState = "ready";
+  } catch (error) {
+    state.users = [];
+    state.userDirectoryState = error?.status === 403 ? "denied" : "unavailable";
+  }
+
+  try {
+    state.teams = await apiFetch("/teams", {}, true, true);
+    state.teamDirectoryState = "ready";
+  } catch (error) {
+    state.teams = [];
+    state.teamDirectoryState = error?.status === 403 ? "denied" : "unavailable";
+  }
+
+  renderReferenceData();
+}
+
+async function apiFetch(path, options = {}, allowRetry = true, quiet = false) {
   const headers = new Headers(options.headers || {});
   if (state.accessToken) {
     headers.set("Authorization", `Bearer ${state.accessToken}`);
@@ -254,7 +323,7 @@ async function apiFetch(path, options = {}, allowRetry = true) {
   if (response.status === 401 && allowRetry && state.refreshToken) {
     try {
       await refreshSession();
-      return apiFetch(path, options, false);
+      return apiFetch(path, options, false, quiet);
     } catch (error) {
       clearSession();
       throw error;
@@ -266,7 +335,11 @@ async function apiFetch(path, options = {}, allowRetry = true) {
   }
 
   if (!response.ok) {
-    throw createApiError(response, data);
+    const error = createApiError(response, data);
+    if (!quiet) {
+      throw error;
+    }
+    throw error;
   }
 
   return data;
@@ -308,11 +381,16 @@ function clearSession() {
   state.refreshToken = null;
   state.user = null;
   state.tasks = [];
+  state.users = [];
+  state.teams = [];
+  state.userDirectoryState = "idle";
+  state.teamDirectoryState = "idle";
   localStorage.removeItem(storageKeys.accessToken);
   localStorage.removeItem(storageKeys.refreshToken);
   localStorage.removeItem(storageKeys.user);
   renderSession();
   renderTasks({ items: [], total: 0, page: 1, page_size: 20, pages: 0 });
+  renderReferenceData();
 }
 
 function renderSession() {
@@ -378,6 +456,100 @@ function renderTasks(result) {
   }
 }
 
+function renderReferenceData() {
+  updateReferenceBadge(elements.usersAccessBadge, state.userDirectoryState, "Пользователи");
+  updateReferenceBadge(elements.teamsAccessBadge, state.teamDirectoryState, "Команды");
+  renderReferenceList(elements.usersReference, state.users, mapUserReferenceItem, state.userDirectoryState, "Пользователи недоступны или ещё не загружены.");
+  renderReferenceList(elements.teamsReference, state.teams, mapTeamReferenceItem, state.teamDirectoryState, "Команды недоступны или ещё не загружены.");
+  renderSuggestions(elements.userIdSuggestions, state.users.map((user) => user.id));
+  renderSuggestions(elements.teamIdSuggestions, state.teams.map((team) => team.id));
+}
+
+function updateReferenceBadge(node, stateValue, label) {
+  node.className = "mini-badge";
+  switch (stateValue) {
+    case "ready":
+      node.textContent = `${label} доступны`;
+      break;
+    case "loading":
+      node.classList.add("neutral");
+      node.textContent = "Загрузка…";
+      break;
+    case "denied":
+      node.classList.add("denied");
+      node.textContent = "Нет прав";
+      break;
+    case "unavailable":
+      node.classList.add("neutral");
+      node.textContent = "Временно недоступно";
+      break;
+    default:
+      node.classList.add("neutral");
+      node.textContent = "Не запрашивалось";
+      break;
+  }
+}
+
+function renderReferenceList(container, items, mapper, stateValue, emptyText) {
+  if (stateValue === "loading") {
+    container.className = "reference-list empty-state";
+    container.innerHTML = "<p>Загрузка справочника…</p>";
+    return;
+  }
+
+  if (!items.length) {
+    container.className = "reference-list empty-state";
+    if (stateValue === "denied") {
+      container.innerHTML = "<p>У текущего пользователя нет прав на этот справочник.</p>";
+      return;
+    }
+    container.innerHTML = `<p>${emptyText}</p>`;
+    return;
+  }
+
+  container.className = "reference-list";
+  container.innerHTML = "";
+  for (const item of items) {
+    const fragment = elements.referenceItemTemplate.content.cloneNode(true);
+    const mapped = mapper(item);
+    fillTaskField(fragment, "title", mapped.title);
+    fillTaskField(fragment, "subtitle", mapped.subtitle);
+    fillTaskField(fragment, "id", mapped.id);
+    fillTaskField(fragment, "extra", mapped.extra);
+    fillTaskField(fragment, "badge", mapped.badge);
+    container.appendChild(fragment);
+  }
+}
+
+function renderSuggestions(container, values) {
+  container.innerHTML = "";
+  for (const value of values) {
+    const option = document.createElement("option");
+    option.value = value;
+    container.appendChild(option);
+  }
+}
+
+function mapUserReferenceItem(user) {
+  return {
+    title: user.email,
+    subtitle: (user.roles || []).join(", ") || "Без ролей",
+    id: user.id,
+    extra: (user.team_ids || []).join(", ") || "Без команд",
+    badge: user.is_active === false ? "inactive" : "active",
+  };
+}
+
+function mapTeamReferenceItem(team) {
+  return {
+    title: team.name,
+    subtitle: "Команда",
+    id: team.id,
+    extra: team.created_at ? formatDate(team.created_at) : "-",
+    badge: "team",
+  };
+}
+
 function fillTaskField(root, field, value) {
   const node = root.querySelector(`[data-field="${field}"]`);
   if (node) {
@@ -425,14 +597,22 @@ function handleApiError(error) {
   const code = error?.payload?.error?.code;
   const details = error?.payload?.error?.details;
   const detailText = details ? `\n${JSON.stringify(details, null, 2)}` : "";
-  elements.errorBanner.textContent = `${code ? `[${code}] ` : ""}${message}${detailText}`;
-  elements.errorBanner.classList.remove("hidden");
+  showBanner(`${code ? `[${code}] ` : ""}${message}${detailText}`, "error");
   console.error(error);
 }
 
-function clearError() {
+function showBanner(message, type = "error") {
+  elements.errorBanner.textContent = message;
+  elements.errorBanner.classList.remove("hidden", "success");
+  if (type === "success") {
+    elements.errorBanner.classList.add("success");
+  }
+}
+
+function clearBanner() {
   elements.errorBanner.textContent = "";
   elements.errorBanner.classList.add("hidden");
+  elements.errorBanner.classList.remove("success");
 }
 
 function readStoredUser() {

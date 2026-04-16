@@ -16,21 +16,21 @@
           <h1>Task Console</h1>
           <p class="lead">
             Небольшой интерфейс для проверки реальных backend-сценариев: вход, регистрация,
-            список задач с фильтрами, создание задач, смена статуса и отображение ошибок API.
+            фильтрация задач, создание задач, смена статуса и понятное отображение ошибок API.
           </p>
 
           <div class="feature-list">
             <article>
-              <h2>Единая точка входа</h2>
-              <p>Frontend и backend доступны через gateway на <strong>localhost:8080</strong>.</p>
+              <h2>Один адрес для всего</h2>
+              <p>И UI, и API доступны через gateway на <strong>localhost:8080</strong>.</p>
             </article>
             <article>
-              <h2>Backend-first логика</h2>
-              <p>RBAC, lifecycle, audit и idempotency остаются на backend, UI только вызывает реальные API.</p>
+              <h2>Реальные backend-правила</h2>
+              <p>RBAC, lifecycle, audit и idempotency по-прежнему живут на backend, а фронт только вызывает контракты.</p>
             </article>
             <article>
-              <h2>Живые сценарии</h2>
-              <p>После входа можно создать задачу, отфильтровать список и перевести задачу по статусам.</p>
+              <h2>Удобнее, чем Swagger</h2>
+              <p>После входа можно посмотреть контекст пользователя, найти нужные ID и быстро прогнать рабочий сценарий.</p>
             </article>
           </div>
         </div>
@@ -77,12 +77,13 @@
         <div>
           <span class="eyebrow">Task Console</span>
           <h2>Рабочая панель</h2>
-          <p class="muted">Тонкий интерфейс для проверки сценариев и API-контрактов next-level версии проекта.</p>
+          <p class="muted">Тонкий интерфейс для демонстрации интеграции и реальных next-level API-контрактов.</p>
         </div>
 
         <nav class="side-nav">
-          <button id="openTasksViewButton" class="nav-link active" type="button">Список задач</button>
-          <button id="openCreateViewButton" class="nav-link" type="button">Создать задачу</button>
+          <button id="openTasksViewButton" class="nav-link active" type="button">Задачи</button>
+          <button id="openCreateViewButton" class="nav-link" type="button">Создать</button>
+          <button id="openReferenceViewButton" class="nav-link" type="button">Справочник</button>
         </nav>
 
         <div class="session-card">
@@ -107,6 +108,15 @@
             <button id="logoutButton" class="ghost" type="button">Выйти</button>
           </div>
         </div>
+
+        <div class="help-card">
+          <h3>Быстрый маршрут</h3>
+          <ol>
+            <li>Войди или зарегистрируйся.</li>
+            <li>Открой «Справочник», если нужны ID пользователей и команд.</li>
+            <li>Создай задачу и вернись в список, чтобы проверить lifecycle.</li>
+          </ol>
+        </div>
       </aside>
 
       <main class="app-main">
@@ -114,7 +124,7 @@
           <div>
             <span class="eyebrow">Gateway mode</span>
             <h1 id="screenTitle">Список задач</h1>
-            <p class="muted">Все запросы идут через <code>/api/v1</code> на одном домене.</p>
+            <p id="screenSubtitle" class="muted">Все запросы идут через <code>/api/v1</code> на одном домене.</p>
           </div>
           <div id="connectionBadge" class="pill">Ожидает авторизации</div>
         </header>
@@ -153,11 +163,11 @@
                 </label>
                 <label>
                   <span>Исполнитель</span>
-                  <input name="assignee_id" placeholder="user-id" />
+                  <input name="assignee_id" placeholder="user-id" list="userIdSuggestions" />
                 </label>
                 <label>
                   <span>Команда</span>
-                  <input name="team_id" placeholder="team-id" />
+                  <input name="team_id" placeholder="team-id" list="teamIdSuggestions" />
                 </label>
                 <label>
                   <span>Сортировка</span>
@@ -202,6 +212,10 @@
               <p>Используется <code>POST /tasks</code> с idempotency key.</p>
             </div>
 
+            <div class="inline-note" id="createHint">
+              Подсказка: если не помнишь ID пользователя или команды, сначала открой экран «Справочник».
+            </div>
+
             <form id="createTaskForm" class="stack-form">
               <label>
                 <span>Заголовок</span>
@@ -214,11 +228,11 @@
               <div class="filters-grid">
                 <label>
                   <span>Assignee ID</span>
-                  <input name="assignee_id" placeholder="user-id" required />
+                  <input name="assignee_id" placeholder="user-id" list="userIdSuggestions" required />
                 </label>
                 <label>
                   <span>Team ID</span>
-                  <input name="team_id" placeholder="team-id" required />
+                  <input name="team_id" placeholder="team-id" list="teamIdSuggestions" required />
                 </label>
                 <label>
                   <span>Приоритет</span>
@@ -236,9 +250,42 @@
               <button type="submit">Создать задачу</button>
             </form>
           </section>
+
+          <section id="referenceScreen" class="hidden">
+            <div class="reference-grid">
+              <section class="panel">
+                <div class="panel-head split">
+                  <div>
+                    <h2>Справочник пользователей</h2>
+                    <p>Используется <code>GET /users</code>, если права позволяют.</p>
+                  </div>
+                  <span id="usersAccessBadge" class="mini-badge neutral">Проверка доступа…</span>
+                </div>
+                <div id="usersReference" class="reference-list empty-state">
+                  <p>Список пользователей пока недоступен.</p>
+                </div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head split">
+                  <div>
+                    <h2>Справочник команд</h2>
+                    <p>Используется <code>GET /teams</code>, если права позволяют.</p>
+                  </div>
+                  <span id="teamsAccessBadge" class="mini-badge neutral">Проверка доступа…</span>
+                </div>
+                <div id="teamsReference" class="reference-list empty-state">
+                  <p>Список команд пока недоступен.</p>
+                </div>
+              </section>
+            </div>
+          </section>
         </div>
       </main>
     </section>
+
+    <datalist id="userIdSuggestions"></datalist>
+    <datalist id="teamIdSuggestions"></datalist>
 
     <template id="taskCardTemplate">
       <article class="task-card">
@@ -293,6 +340,28 @@
           </label>
           <button type="submit">Сменить статус</button>
         </form>
+      </article>
+    </template>
+
+    <template id="referenceItemTemplate">
+      <article class="reference-item">
+        <div class="reference-item__head split">
+          <div>
+            <h3 data-field="title"></h3>
+            <p data-field="subtitle"></p>
+          </div>
+          <div class="mini-badge" data-field="badge"></div>
+        </div>
+        <dl class="reference-meta">
+          <div>
+            <dt>ID</dt>
+            <dd data-field="id"></dd>
+          </div>
+          <div>
+            <dt>Дополнительно</dt>
+            <dd data-field="extra"></dd>
+          </div>
+        </dl>
       </article>
     </template>
 
