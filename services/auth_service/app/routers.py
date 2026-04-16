@@ -3,7 +3,6 @@ import math
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -26,63 +25,26 @@ from .schemas import (
     UserLogin,
     UserResponse,
 )
+from .rbac import ROLE_SORT_ORDER, get_current_principal, get_user_role_codes, get_user_team_ids, normalize_role_codes, require_roles
 from .security import (
     create_access_token,
     create_refresh_token,
-    decode_access_token,
     decode_refresh_token,
     hash_password,
     hash_token,
     verify_password,
 )
 
-ROLE_SORT_ORDER = {
-    RoleCode.USER.value: 0,
-    RoleCode.TEAMLEAD.value: 1,
-    RoleCode.ADMIN.value: 2,
-}
-
 router = APIRouter()
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 users_router = APIRouter(prefix="/users", tags=["users"])
 teams_router = APIRouter(prefix="/teams", tags=["teams"])
-bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def ensure_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
-
-
-def normalize_role_codes(role_codes: list[str]) -> list[str]:
-    normalized = []
-    seen: set[str] = set()
-    for role_code in role_codes:
-        cleaned = role_code.strip().lower()
-        if not cleaned or cleaned in seen:
-            continue
-        seen.add(cleaned)
-        normalized.append(cleaned)
-    return sorted(normalized, key=lambda code: ROLE_SORT_ORDER.get(code, 999))
-
-
-def get_user_role_codes(db: Session, user_id: str) -> list[str]:
-    role_codes = db.scalars(
-        select(Role.code)
-        .join(UserRole, UserRole.role_id == Role.id)
-        .where(UserRole.user_id == user_id)
-    ).all()
-    return normalize_role_codes(list(role_codes))
-
-
-def get_user_team_ids(db: Session, user_id: str) -> list[str]:
-    team_ids = db.scalars(
-        select(TeamMembership.team_id)
-        .where(TeamMembership.user_id == user_id)
-        .order_by(TeamMembership.created_at.asc())
-    ).all()
-    return list(team_ids)
 
 
 def build_user_response(*, user: User, db: Session) -> UserResponse:
@@ -234,39 +196,6 @@ def get_refresh_session(*, db: Session, refresh_token: str, payload: dict) -> Re
     return session
 
 
-def get_current_principal(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    db: Session = Depends(get_db),
-    settings: Settings = Depends(get_settings),
-) -> CurrentPrincipal:
-    if credentials is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
-
-    try:
-        payload = decode_access_token(credentials.credentials, settings)
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token") from exc
-
-    user = db.get(User, payload["sub"])
-    if user is None or not user.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User is not active")
-
-    roles = normalize_role_codes(list(payload.get("roles") or get_user_role_codes(db, user.id)))
-    team_ids = list(payload.get("team_ids") or get_user_team_ids(db, user.id))
-    return CurrentPrincipal(user_id=user.id, email=user.email, roles=roles, team_ids=team_ids)
-
-
-def require_admin(principal: CurrentPrincipal) -> None:
-    if RoleCode.ADMIN.value not in principal.roles:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
-
-
-def require_admin_or_teamlead(principal: CurrentPrincipal) -> None:
-    if RoleCode.ADMIN.value in principal.roles or RoleCode.TEAMLEAD.value in principal.roles:
-        return
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin or teamlead role required")
-
-
 @auth_router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 def register_user(
     payload: UserCreate,
@@ -405,10 +334,9 @@ def list_users(
     page_size: int = Query(20, ge=1, le=100),
     role: str | None = Query(default=None),
     team_id: str | None = Query(default=None),
-    principal: CurrentPrincipal = Depends(get_current_principal),
+    principal: CurrentPrincipal = Depends(require_roles(RoleCode.ADMIN.value)),
     db: Session = Depends(get_db),
 ):
-    require_admin(principal)
 
     statement = select(User).distinct().order_by(User.created_at.desc())
     if role:
@@ -437,10 +365,9 @@ def list_users(
 @users_router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user_by_admin(
     payload: AdminUserCreate,
-    principal: CurrentPrincipal = Depends(get_current_principal),
+    principal: CurrentPrincipal = Depends(require_roles(RoleCode.ADMIN.value)),
     db: Session = Depends(get_db),
 ):
-    require_admin(principal)
 
     normalized_email = payload.email.strip().lower()
     if db.scalar(select(User).where(User.email == normalized_email)) is not None:
@@ -471,10 +398,9 @@ def create_user_by_admin(
 def replace_user_roles(
     user_id: str,
     payload: RoleUpdateRequest,
-    principal: CurrentPrincipal = Depends(get_current_principal),
+    principal: CurrentPrincipal = Depends(require_roles(RoleCode.ADMIN.value)),
     db: Session = Depends(get_db),
 ):
-    require_admin(principal)
 
     user = db.get(User, user_id)
     if user is None:
@@ -500,10 +426,9 @@ def replace_user_roles(
 def list_teams(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    principal: CurrentPrincipal = Depends(get_current_principal),
+    principal: CurrentPrincipal = Depends(require_roles(RoleCode.ADMIN.value, RoleCode.TEAMLEAD.value)),
     db: Session = Depends(get_db),
 ):
-    require_admin_or_teamlead(principal)
 
     statement = select(Team).order_by(Team.created_at.desc())
     if RoleCode.ADMIN.value not in principal.roles:
@@ -526,10 +451,9 @@ def list_teams(
 @teams_router.post("", response_model=TeamResponse, status_code=status.HTTP_201_CREATED)
 def create_team(
     payload: TeamCreateRequest,
-    principal: CurrentPrincipal = Depends(get_current_principal),
+    principal: CurrentPrincipal = Depends(require_roles(RoleCode.ADMIN.value)),
     db: Session = Depends(get_db),
 ):
-    require_admin(principal)
 
     normalized_name = payload.name.strip()
     if db.scalar(select(Team).where(Team.name == normalized_name)) is not None:
@@ -555,10 +479,9 @@ def create_team(
 def add_team_member(
     team_id: str,
     payload: TeamMembershipCreateRequest,
-    principal: CurrentPrincipal = Depends(get_current_principal),
+    principal: CurrentPrincipal = Depends(require_roles(RoleCode.ADMIN.value)),
     db: Session = Depends(get_db),
 ):
-    require_admin(principal)
 
     team = db.get(Team, team_id)
     if team is None:
@@ -594,10 +517,9 @@ def add_team_member(
 def remove_team_member(
     team_id: str,
     user_id: str,
-    principal: CurrentPrincipal = Depends(get_current_principal),
+    principal: CurrentPrincipal = Depends(require_roles(RoleCode.ADMIN.value)),
     db: Session = Depends(get_db),
 ):
-    require_admin(principal)
 
     membership = db.scalar(
         select(TeamMembership).where(TeamMembership.team_id == team_id, TeamMembership.user_id == user_id)
