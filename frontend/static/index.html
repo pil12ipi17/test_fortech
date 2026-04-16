@@ -1,57 +1,92 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Task Console</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <title>Fortech Task Console</title>
+    <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <aside class="sidebar">
-        <div class="brand">
-          <span class="brand-kicker">Fortech Demo</span>
+    <div id="errorBanner" class="toast hidden"></div>
+
+    <section id="authView" class="auth-view">
+      <div class="auth-layout">
+        <div class="auth-copy">
+          <span class="eyebrow">Fortech Stage 3</span>
           <h1>Task Console</h1>
-          <p>Тонкий frontend для проверки API-контуров.</p>
+          <p class="lead">
+            Небольшой интерфейс для проверки реальных backend-сценариев: вход, регистрация,
+            список задач с фильтрами, создание задач, смена статуса и отображение ошибок API.
+          </p>
+
+          <div class="feature-list">
+            <article>
+              <h2>Единая точка входа</h2>
+              <p>Frontend и backend доступны через gateway на <strong>localhost:8080</strong>.</p>
+            </article>
+            <article>
+              <h2>Backend-first логика</h2>
+              <p>RBAC, lifecycle, audit и idempotency остаются на backend, UI только вызывает реальные API.</p>
+            </article>
+            <article>
+              <h2>Живые сценарии</h2>
+              <p>После входа можно создать задачу, отфильтровать список и перевести задачу по статусам.</p>
+            </article>
+          </div>
         </div>
 
-        <section class="panel auth-panel" id="authPanel">
-          <div class="panel-head">
-            <h2>Вход</h2>
-            <p>Использует публичный API auth-service.</p>
+        <div class="auth-card">
+          <div class="auth-switch">
+            <button id="showLoginButton" class="switch-btn active" type="button">Вход</button>
+            <button id="showRegisterButton" class="switch-btn" type="button">Регистрация</button>
           </div>
+
           <form id="loginForm" class="stack-form">
+            <h2>Войти в систему</h2>
+            <p>Используется маршрут <code>POST /api/v1/auth/login</code>.</p>
             <label>
               <span>Email</span>
               <input type="email" name="email" placeholder="user@example.com" required />
             </label>
             <label>
               <span>Пароль</span>
-              <input type="password" name="password" placeholder="••••••••" required />
+              <input type="password" name="password" placeholder="Минимум 8 символов" required />
             </label>
             <button type="submit">Войти</button>
           </form>
-          <details class="secondary-auth">
-            <summary>Нужен новый пользователь?</summary>
-            <form id="registerForm" class="stack-form compact">
-              <label>
-                <span>Email</span>
-                <input type="email" name="email" placeholder="new@example.com" required />
-              </label>
-              <label>
-                <span>Пароль</span>
-                <input type="password" name="password" placeholder="Минимум 8 символов" required />
-              </label>
-              <button type="submit">Зарегистрировать</button>
-            </form>
-          </details>
-        </section>
 
-        <section class="panel hidden" id="sessionPanel">
-          <div class="panel-head">
-            <h2>Сессия</h2>
-            <p>Текущий пользователь и access-context.</p>
-          </div>
+          <form id="registerForm" class="stack-form hidden">
+            <h2>Создать пользователя</h2>
+            <p>Используется маршрут <code>POST /api/v1/auth/register</code> с автоматическим открытием сессии.</p>
+            <label>
+              <span>Email</span>
+              <input type="email" name="email" placeholder="new@example.com" required />
+            </label>
+            <label>
+              <span>Пароль</span>
+              <input type="password" name="password" placeholder="Минимум 8 символов" required />
+            </label>
+            <button type="submit">Зарегистрироваться</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section id="appView" class="app-view hidden">
+      <aside class="app-sidebar">
+        <div>
+          <span class="eyebrow">Task Console</span>
+          <h2>Рабочая панель</h2>
+          <p class="muted">Тонкий интерфейс для проверки сценариев и API-контрактов next-level версии проекта.</p>
+        </div>
+
+        <nav class="side-nav">
+          <button id="openTasksViewButton" class="nav-link active" type="button">Список задач</button>
+          <button id="openCreateViewButton" class="nav-link" type="button">Создать задачу</button>
+        </nav>
+
+        <div class="session-card">
+          <h3>Текущий пользователь</h3>
           <dl class="session-meta">
             <div>
               <dt>Email</dt>
@@ -66,42 +101,36 @@
               <dd id="sessionTeams">-</dd>
             </div>
           </dl>
-          <div class="panel-actions">
-            <button id="refreshButton" type="button" class="ghost">Обновить токены</button>
-            <button id="logoutButton" type="button" class="danger">Выйти</button>
+
+          <div class="session-actions">
+            <button id="refreshButton" type="button">Обновить токены</button>
+            <button id="logoutButton" class="ghost" type="button">Выйти</button>
           </div>
-        </section>
+        </div>
       </aside>
 
-      <main class="content">
-        <header class="hero">
+      <main class="app-main">
+        <header class="app-header split">
           <div>
-            <span class="eyebrow">Stage 3</span>
-            <h2>Проверка backend через реальные сценарии</h2>
-            <p>
-              Логин, список задач с фильтрами, создание задачи, смена статуса и понятное отображение API-ошибок.
-            </p>
+            <span class="eyebrow">Gateway mode</span>
+            <h1 id="screenTitle">Список задач</h1>
+            <p class="muted">Все запросы идут через <code>/api/v1</code> на одном домене.</p>
           </div>
-          <div class="hero-status">
-            <span class="status-dot"></span>
-            <span id="connectionBadge">Ожидает авторизации</span>
-          </div>
+          <div id="connectionBadge" class="pill">Ожидает авторизации</div>
         </header>
 
-        <section id="errorBanner" class="error-banner hidden"></section>
-
-        <section class="workspace hidden" id="workspace">
-          <div class="grid">
-            <section class="panel wide">
-              <div class="panel-head split">
-                <div>
-                  <h2>Фильтры задач</h2>
-                  <p>Тот же контракт, что и у `GET /tasks`.</p>
-                </div>
-                <button id="reloadTasksButton" type="button" class="ghost">Обновить</button>
+        <div class="screen-stack">
+          <section id="tasksScreen" class="panel">
+            <div class="panel-head split">
+              <div>
+                <h2>Фильтры и список задач</h2>
+                <p>Контракт соответствует <code>GET /tasks</code>.</p>
               </div>
+              <button id="reloadTasksButton" type="button">Обновить</button>
+            </div>
 
-              <form id="filtersForm" class="filters-grid">
+            <form id="filtersForm" class="stack-form compact">
+              <div class="filters-grid">
                 <label>
                   <span>Статус</span>
                   <select name="status">
@@ -124,11 +153,11 @@
                 </label>
                 <label>
                   <span>Исполнитель</span>
-                  <input type="text" name="assignee_id" placeholder="user-id" />
+                  <input name="assignee_id" placeholder="user-id" />
                 </label>
                 <label>
                   <span>Команда</span>
-                  <input type="text" name="team_id" placeholder="team-id" />
+                  <input name="team_id" placeholder="team-id" />
                 </label>
                 <label>
                   <span>Сортировка</span>
@@ -148,40 +177,48 @@
                 </label>
                 <label>
                   <span>Страница</span>
-                  <input type="number" name="page" min="1" value="1" />
+                  <input name="page" type="number" min="1" value="1" />
                 </label>
                 <label>
                   <span>Page size</span>
-                  <input type="number" name="page_size" min="1" max="100" value="20" />
+                  <input name="page_size" type="number" min="1" max="100" value="20" />
                 </label>
-                <div class="filters-actions">
-                  <button type="submit">Применить</button>
-                  <button type="reset" id="resetFiltersButton" class="ghost">Сбросить</button>
-                </div>
-              </form>
-            </section>
-
-            <section class="panel narrow">
-              <div class="panel-head">
-                <h2>Новая задача</h2>
-                <p>POST /tasks</p>
               </div>
-              <form id="createTaskForm" class="stack-form compact">
-                <label>
-                  <span>Заголовок</span>
-                  <input type="text" name="title" maxlength="255" required />
-                </label>
-                <label>
-                  <span>Описание</span>
-                  <textarea name="description" rows="4"></textarea>
-                </label>
+              <div class="filters-actions">
+                <button type="submit">Применить</button>
+                <button id="resetFiltersButton" class="ghost" type="reset">Сбросить</button>
+              </div>
+            </form>
+
+            <div id="tasksMeta" class="muted">Пока нет данных.</div>
+            <div id="tasksList" class="tasks-list empty-state">
+              <p>Авторизуйся и загрузи задачи, чтобы увидеть список.</p>
+            </div>
+          </section>
+
+          <section id="createScreen" class="panel narrow-panel hidden">
+            <div class="panel-head">
+              <h2>Создание задачи</h2>
+              <p>Используется <code>POST /tasks</code> с idempotency key.</p>
+            </div>
+
+            <form id="createTaskForm" class="stack-form">
+              <label>
+                <span>Заголовок</span>
+                <input name="title" placeholder="Например: Подготовить отчёт" required />
+              </label>
+              <label>
+                <span>Описание</span>
+                <textarea name="description" rows="4" placeholder="Коротко опиши задачу"></textarea>
+              </label>
+              <div class="filters-grid">
                 <label>
                   <span>Assignee ID</span>
-                  <input type="text" name="assignee_id" required />
+                  <input name="assignee_id" placeholder="user-id" required />
                 </label>
                 <label>
                   <span>Team ID</span>
-                  <input type="text" name="team_id" required />
+                  <input name="team_id" placeholder="team-id" required />
                 </label>
                 <label>
                   <span>Приоритет</span>
@@ -193,27 +230,15 @@
                 </label>
                 <label>
                   <span>Дедлайн</span>
-                  <input type="datetime-local" name="deadline" />
+                  <input name="deadline" type="datetime-local" />
                 </label>
-                <button type="submit">Создать задачу</button>
-              </form>
-            </section>
-          </div>
-
-          <section class="panel">
-            <div class="panel-head split">
-              <div>
-                <h2>Список задач</h2>
-                <p id="tasksMeta">Пока нет данных.</p>
               </div>
-            </div>
-            <div id="tasksList" class="tasks-list empty-state">
-              <p>Авторизуйся и загрузи задачи, чтобы увидеть список.</p>
-            </div>
+              <button type="submit">Создать задачу</button>
+            </form>
           </section>
-        </section>
+        </div>
       </main>
-    </div>
+    </section>
 
     <template id="taskCardTemplate">
       <article class="task-card">
@@ -222,16 +247,36 @@
             <h3 data-field="title"></h3>
             <p data-field="description"></p>
           </div>
-          <span class="pill" data-field="status"></span>
+          <div class="pill" data-field="status"></div>
         </header>
+
         <dl class="task-meta">
-          <div><dt>ID</dt><dd data-field="id"></dd></div>
-          <div><dt>Owner</dt><dd data-field="owner_id"></dd></div>
-          <div><dt>Assignee</dt><dd data-field="assignee_id"></dd></div>
-          <div><dt>Team</dt><dd data-field="team_id"></dd></div>
-          <div><dt>Priority</dt><dd data-field="priority"></dd></div>
-          <div><dt>Deadline</dt><dd data-field="deadline"></dd></div>
+          <div>
+            <dt>ID</dt>
+            <dd data-field="id"></dd>
+          </div>
+          <div>
+            <dt>Owner</dt>
+            <dd data-field="owner_id"></dd>
+          </div>
+          <div>
+            <dt>Assignee</dt>
+            <dd data-field="assignee_id"></dd>
+          </div>
+          <div>
+            <dt>Команда</dt>
+            <dd data-field="team_id"></dd>
+          </div>
+          <div>
+            <dt>Приоритет</dt>
+            <dd data-field="priority"></dd>
+          </div>
+          <div>
+            <dt>Дедлайн</dt>
+            <dd data-field="deadline"></dd>
+          </div>
         </dl>
+
         <form class="status-form">
           <label>
             <span>Новый статус</span>
@@ -244,13 +289,13 @@
           </label>
           <label>
             <span>Комментарий</span>
-            <input type="text" name="comment" placeholder="Причина или контекст" />
+            <input name="comment" placeholder="Например: передаю на проверку" />
           </label>
           <button type="submit">Сменить статус</button>
         </form>
       </article>
     </template>
 
-    <script src="./app.js" type="module"></script>
+    <script src="/app.js"></script>
   </body>
 </html>

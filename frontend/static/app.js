@@ -1,4 +1,4 @@
-﻿const API_BASE = window.__API_BASE__ || "/api/v1";
+const API_BASE = window.__API_BASE__ || "/api/v1";
 const storageKeys = {
   accessToken: "task_console_access_token",
   refreshToken: "task_console_refresh_token",
@@ -10,20 +10,28 @@ const state = {
   refreshToken: localStorage.getItem(storageKeys.refreshToken),
   user: readStoredUser(),
   tasks: [],
+  activeScreen: "tasks",
+  authMode: "login",
 };
 
 const elements = {
-  authPanel: document.getElementById("authPanel"),
-  sessionPanel: document.getElementById("sessionPanel"),
-  workspace: document.getElementById("workspace"),
+  authView: document.getElementById("authView"),
+  appView: document.getElementById("appView"),
   loginForm: document.getElementById("loginForm"),
   registerForm: document.getElementById("registerForm"),
+  showLoginButton: document.getElementById("showLoginButton"),
+  showRegisterButton: document.getElementById("showRegisterButton"),
   filtersForm: document.getElementById("filtersForm"),
   createTaskForm: document.getElementById("createTaskForm"),
   reloadTasksButton: document.getElementById("reloadTasksButton"),
   resetFiltersButton: document.getElementById("resetFiltersButton"),
   refreshButton: document.getElementById("refreshButton"),
   logoutButton: document.getElementById("logoutButton"),
+  openTasksViewButton: document.getElementById("openTasksViewButton"),
+  openCreateViewButton: document.getElementById("openCreateViewButton"),
+  tasksScreen: document.getElementById("tasksScreen"),
+  createScreen: document.getElementById("createScreen"),
+  screenTitle: document.getElementById("screenTitle"),
   tasksList: document.getElementById("tasksList"),
   tasksMeta: document.getElementById("tasksMeta"),
   errorBanner: document.getElementById("errorBanner"),
@@ -36,15 +44,26 @@ const elements = {
 
 bootstrap();
 
-function bootstrap() {
+async function bootstrap() {
   bindEvents();
+  renderAuthMode();
   renderSession();
+  setScreen(state.activeScreen);
+
   if (state.accessToken) {
-    loadCurrentUser().then(() => loadTasks()).catch(handleApiError);
+    try {
+      await loadCurrentUser();
+      await loadTasks();
+    } catch (error) {
+      clearSession();
+      handleApiError(error);
+    }
   }
 }
 
 function bindEvents() {
+  elements.showLoginButton.addEventListener("click", () => setAuthMode("login"));
+  elements.showRegisterButton.addEventListener("click", () => setAuthMode("register"));
   elements.loginForm.addEventListener("submit", handleLogin);
   elements.registerForm.addEventListener("submit", handleRegister);
   elements.filtersForm.addEventListener("submit", handleFiltersSubmit);
@@ -53,6 +72,32 @@ function bindEvents() {
   elements.reloadTasksButton.addEventListener("click", () => loadTasks().catch(handleApiError));
   elements.refreshButton.addEventListener("click", handleRefresh);
   elements.logoutButton.addEventListener("click", handleLogout);
+  elements.openTasksViewButton.addEventListener("click", () => setScreen("tasks"));
+  elements.openCreateViewButton.addEventListener("click", () => setScreen("create"));
+}
+
+function setAuthMode(mode) {
+  state.authMode = mode;
+  renderAuthMode();
+  clearError();
+}
+
+function renderAuthMode() {
+  const isLogin = state.authMode === "login";
+  elements.loginForm.classList.toggle("hidden", !isLogin);
+  elements.registerForm.classList.toggle("hidden", isLogin);
+  elements.showLoginButton.classList.toggle("active", isLogin);
+  elements.showRegisterButton.classList.toggle("active", !isLogin);
+}
+
+function setScreen(screen) {
+  state.activeScreen = screen;
+  const showTasks = screen === "tasks";
+  elements.tasksScreen.classList.toggle("hidden", !showTasks);
+  elements.createScreen.classList.toggle("hidden", showTasks);
+  elements.openTasksViewButton.classList.toggle("active", showTasks);
+  elements.openCreateViewButton.classList.toggle("active", !showTasks);
+  elements.screenTitle.textContent = showTasks ? "Список задач" : "Создание задачи";
 }
 
 async function handleLogin(event) {
@@ -83,12 +128,15 @@ async function authRequest(path, payload) {
     body: JSON.stringify(payload),
   });
   const data = await parseJson(response);
+
   if (!response.ok) {
     throw createApiError(response, data);
   }
+
   applySession(data);
   await loadCurrentUser();
   await loadTasks();
+  setScreen("tasks");
 }
 
 async function handleRefresh() {
@@ -107,7 +155,9 @@ async function handleLogout() {
       body: JSON.stringify({ refresh_token: state.refreshToken }),
     }).catch(() => undefined);
   }
+
   clearSession();
+  setAuthMode("login");
 }
 
 async function handleFiltersSubmit(event) {
@@ -142,7 +192,9 @@ async function handleCreateTask(event) {
       "Idempotency-Key": `create-${crypto.randomUUID()}`,
     },
   });
+
   event.currentTarget.reset();
+  setScreen("tasks");
   await loadTasks();
 }
 
@@ -153,6 +205,7 @@ async function handleStatusChange(taskId, form) {
     status: formData.get("status"),
     comment: String(formData.get("comment") || "").trim() || null,
   };
+
   await apiFetch(`/tasks/${taskId}/status`, {
     method: "PATCH",
     body: JSON.stringify(payload),
@@ -161,6 +214,7 @@ async function handleStatusChange(taskId, form) {
       "Idempotency-Key": `status-${crypto.randomUUID()}`,
     },
   });
+
   await loadTasks();
 }
 
@@ -174,12 +228,14 @@ async function loadCurrentUser() {
 async function loadTasks() {
   const params = new URLSearchParams();
   const formData = new FormData(elements.filtersForm);
+
   for (const [key, rawValue] of formData.entries()) {
     const value = String(rawValue || "").trim();
     if (value) {
       params.set(key, value);
     }
   }
+
   const query = params.toString();
   const result = await apiFetch(`/tasks${query ? `?${query}` : ""}`);
   state.tasks = result.items || [];
@@ -192,20 +248,27 @@ async function apiFetch(path, options = {}, allowRetry = true) {
     headers.set("Authorization", `Bearer ${state.accessToken}`);
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
+  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
   const data = await parseJson(response);
 
   if (response.status === 401 && allowRetry && state.refreshToken) {
-    await refreshSession();
-    return apiFetch(path, options, false);
+    try {
+      await refreshSession();
+      return apiFetch(path, options, false);
+    } catch (error) {
+      clearSession();
+      throw error;
+    }
+  }
+
+  if (response.status === 401 && !allowRetry) {
+    clearSession();
   }
 
   if (!response.ok) {
     throw createApiError(response, data);
   }
+
   return data;
 }
 
@@ -221,10 +284,12 @@ async function refreshSession() {
     body: JSON.stringify({ refresh_token: state.refreshToken }),
   });
   const data = await parseJson(response);
+
   if (!response.ok) {
     clearSession();
     throw createApiError(response, data);
   }
+
   applySession(data);
 }
 
@@ -252,9 +317,8 @@ function clearSession() {
 
 function renderSession() {
   const isAuthenticated = Boolean(state.accessToken && state.user);
-  elements.authPanel.classList.toggle("hidden", isAuthenticated);
-  elements.sessionPanel.classList.toggle("hidden", !isAuthenticated);
-  elements.workspace.classList.toggle("hidden", !isAuthenticated);
+  elements.authView.classList.toggle("hidden", isAuthenticated);
+  elements.appView.classList.toggle("hidden", !isAuthenticated);
 
   if (!isAuthenticated) {
     elements.sessionEmail.textContent = "-";
@@ -285,7 +349,6 @@ function renderTasks(result) {
 
   for (const task of items) {
     const fragment = elements.taskCardTemplate.content.cloneNode(true);
-    const card = fragment.querySelector(".task-card");
     fillTaskField(fragment, "title", task.title);
     fillTaskField(fragment, "description", task.description || "Без описания");
     fillTaskField(fragment, "id", task.id);
@@ -293,7 +356,7 @@ function renderTasks(result) {
     fillTaskField(fragment, "assignee_id", task.assignee_id);
     fillTaskField(fragment, "team_id", task.team_id);
     fillTaskField(fragment, "priority", task.priority);
-    fillTaskField(fragment, "deadline", task.deadline ? formatDate(task.deadline) : "-" );
+    fillTaskField(fragment, "deadline", task.deadline ? formatDate(task.deadline) : "-");
     fillTaskField(fragment, "status", task.status);
 
     const statusSelect = fragment.querySelector('select[name="status"]');
@@ -311,14 +374,14 @@ function renderTasks(result) {
       }
     });
 
-    elements.tasksList.appendChild(card);
+    elements.tasksList.appendChild(fragment);
   }
 }
 
 function fillTaskField(root, field, value) {
   const node = root.querySelector(`[data-field="${field}"]`);
   if (node) {
-    node.textContent = value;
+    node.textContent = value ?? "-";
   }
 }
 
@@ -377,6 +440,7 @@ function readStoredUser() {
   if (!raw) {
     return null;
   }
+
   try {
     return JSON.parse(raw);
   } catch {
