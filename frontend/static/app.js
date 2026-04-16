@@ -8,15 +8,15 @@ const storageKeys = {
 const screenMeta = {
   tasks: {
     title: "Список задач",
-    subtitle: "Фильтруй данные, отслеживай lifecycle и меняй статусы через реальные backend-контракты.",
+    subtitle: "Фильтруй данные, смотри lifecycle и меняй статусы через реальные backend-контракты.",
   },
   create: {
     title: "Создание задачи",
-    subtitle: "Новый таск отправляется в task-service с idempotency key и обычной backend-валидацией.",
+    subtitle: "Новый таск уходит в task-service с idempotency key и обычной backend-валидацией.",
   },
   reference: {
     title: "Справочник пользователей и команд",
-    subtitle: "Этот экран помогает найти рабочие ID, чтобы не вводить значения вручную вслепую.",
+    subtitle: "Этот экран помогает быстро находить рабочие ID и понимать, какие маршруты доступны текущей роли.",
   },
 };
 
@@ -283,7 +283,7 @@ async function loadTasks() {
 
   const query = params.toString();
   const result = await apiFetch(`/tasks${query ? `?${query}` : ""}`);
-  state.tasks = result.items || [];
+  state.tasks = toItems(result);
   renderTasks(result);
 }
 
@@ -293,7 +293,8 @@ async function loadReferenceData() {
   renderReferenceData();
 
   try {
-    state.users = await apiFetch("/users", {}, true, true);
+    const usersResponse = await apiFetch("/users?page=1&page_size=100", {}, true, true);
+    state.users = toItems(usersResponse);
     state.userDirectoryState = "ready";
   } catch (error) {
     state.users = [];
@@ -301,7 +302,8 @@ async function loadReferenceData() {
   }
 
   try {
-    state.teams = await apiFetch("/teams", {}, true, true);
+    const teamsResponse = await apiFetch("/teams?page=1&page_size=100", {}, true, true);
+    state.teams = toItems(teamsResponse);
     state.teamDirectoryState = "ready";
   } catch (error) {
     state.teams = [];
@@ -413,8 +415,8 @@ function renderSession() {
 }
 
 function renderTasks(result) {
-  const items = result.items || [];
-  elements.tasksMeta.textContent = `Всего: ${result.total ?? 0} | Страница: ${result.page ?? 1}/${result.pages ?? 0}`;
+  const items = toItems(result);
+  elements.tasksMeta.textContent = `Всего: ${result.total ?? items.length} | Страница: ${result.page ?? 1}/${result.pages ?? 1}`;
 
   if (!items.length) {
     elements.tasksList.className = "tasks-list empty-state";
@@ -427,15 +429,15 @@ function renderTasks(result) {
 
   for (const task of items) {
     const fragment = elements.taskCardTemplate.content.cloneNode(true);
-    fillTaskField(fragment, "title", task.title);
-    fillTaskField(fragment, "description", task.description || "Без описания");
-    fillTaskField(fragment, "id", task.id);
-    fillTaskField(fragment, "owner_id", task.owner_id);
-    fillTaskField(fragment, "assignee_id", task.assignee_id);
-    fillTaskField(fragment, "team_id", task.team_id);
-    fillTaskField(fragment, "priority", task.priority);
-    fillTaskField(fragment, "deadline", task.deadline ? formatDate(task.deadline) : "-");
-    fillTaskField(fragment, "status", task.status);
+    fillField(fragment, "title", task.title);
+    fillField(fragment, "description", task.description || "Без описания");
+    fillField(fragment, "id", task.id);
+    fillField(fragment, "owner_id", task.owner_id);
+    fillField(fragment, "assignee_id", task.assignee_id);
+    fillField(fragment, "team_id", task.team_id);
+    fillField(fragment, "priority", task.priority);
+    fillField(fragment, "deadline", task.deadline ? formatDate(task.deadline) : "-");
+    fillField(fragment, "status", task.status);
 
     const statusSelect = fragment.querySelector('select[name="status"]');
     if (statusSelect) {
@@ -457,12 +459,27 @@ function renderTasks(result) {
 }
 
 function renderReferenceData() {
+  const users = toItems(state.users);
+  const teams = toItems(state.teams);
+
   updateReferenceBadge(elements.usersAccessBadge, state.userDirectoryState, "Пользователи");
   updateReferenceBadge(elements.teamsAccessBadge, state.teamDirectoryState, "Команды");
-  renderReferenceList(elements.usersReference, state.users, mapUserReferenceItem, state.userDirectoryState, "Пользователи недоступны или ещё не загружены.");
-  renderReferenceList(elements.teamsReference, state.teams, mapTeamReferenceItem, state.teamDirectoryState, "Команды недоступны или ещё не загружены.");
-  renderSuggestions(elements.userIdSuggestions, state.users.map((user) => user.id));
-  renderSuggestions(elements.teamIdSuggestions, state.teams.map((team) => team.id));
+  renderReferenceList(
+    elements.usersReference,
+    users,
+    mapUserReferenceItem,
+    state.userDirectoryState,
+    "Пользователи недоступны или ещё не загружены."
+  );
+  renderReferenceList(
+    elements.teamsReference,
+    teams,
+    mapTeamReferenceItem,
+    state.teamDirectoryState,
+    "Команды недоступны или ещё не загружены."
+  );
+  renderSuggestions(elements.userIdSuggestions, users.map((user) => user.id));
+  renderSuggestions(elements.teamIdSuggestions, teams.map((team) => team.id));
 }
 
 function updateReferenceBadge(node, stateValue, label) {
@@ -512,11 +529,11 @@ function renderReferenceList(container, items, mapper, stateValue, emptyText) {
   for (const item of items) {
     const fragment = elements.referenceItemTemplate.content.cloneNode(true);
     const mapped = mapper(item);
-    fillTaskField(fragment, "title", mapped.title);
-    fillTaskField(fragment, "subtitle", mapped.subtitle);
-    fillTaskField(fragment, "id", mapped.id);
-    fillTaskField(fragment, "extra", mapped.extra);
-    fillTaskField(fragment, "badge", mapped.badge);
+    fillField(fragment, "title", mapped.title);
+    fillField(fragment, "subtitle", mapped.subtitle);
+    fillField(fragment, "id", mapped.id);
+    fillField(fragment, "extra", mapped.extra);
+    fillField(fragment, "badge", mapped.badge);
     container.appendChild(fragment);
   }
 }
@@ -550,7 +567,17 @@ function mapTeamReferenceItem(team) {
   };
 }
 
-function fillTaskField(root, field, value) {
+function toItems(payload) {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (Array.isArray(payload?.items)) {
+    return payload.items;
+  }
+  return [];
+}
+
+function fillField(root, field, value) {
   const node = root.querySelector(`[data-field="${field}"]`);
   if (node) {
     node.textContent = value ?? "-";
