@@ -238,11 +238,13 @@ async function handleCreateTask(event) {
 
   const formData = new FormData(event.currentTarget);
   const deadline = formData.get("deadline");
+  const assigneeId = resolveUserReference(String(formData.get("assignee_id") || "").trim());
+  const teamId = resolveTeamReference(String(formData.get("team_id") || "").trim());
   const payload = {
     title: String(formData.get("title") || "").trim(),
     description: String(formData.get("description") || "").trim() || null,
-    assignee_id: String(formData.get("assignee_id") || "").trim(),
-    team_id: String(formData.get("team_id") || "").trim(),
+    assignee_id: assigneeId,
+    team_id: teamId,
     priority: formData.get("priority"),
     deadline: deadline ? new Date(String(deadline)).toISOString() : null,
   };
@@ -269,7 +271,7 @@ async function handleAdminUserCreate(event) {
   const form = event.currentTarget;
   const formData = new FormData(form);
   const roles = Array.from(form.querySelectorAll('input[name="roles"]:checked')).map((input) => input.value);
-  const teamIds = parseCsvList(formData.get("team_ids"));
+  const teamIds = parseCsvList(formData.get("team_ids")).map(resolveTeamReference);
 
   if (!roles.length) {
     showBanner("Для нового пользователя нужно выбрать хотя бы одну роль.");
@@ -316,8 +318,8 @@ async function handleTeamMemberCreate(event) {
   clearBanner();
 
   const formData = new FormData(event.currentTarget);
-  const teamId = String(formData.get("team_id") || "").trim();
-  const userId = String(formData.get("user_id") || "").trim();
+  const teamId = resolveTeamReference(String(formData.get("team_id") || "").trim());
+  const userId = resolveUserReference(String(formData.get("user_id") || "").trim());
   await apiFetch(`/teams/${teamId}/members`, {
     method: "POST",
     body: JSON.stringify({ user_id: userId }),
@@ -672,6 +674,28 @@ function parseCsvList(rawValue) {
     .filter(Boolean);
 }
 
+function normalizeLookupValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function resolveUserReference(value) {
+  const normalized = normalizeLookupValue(value);
+  if (!normalized) {
+    return "";
+  }
+  const user = state.users.find((item) => item.id === value || normalizeLookupValue(item.email) === normalized);
+  return user ? user.id : value;
+}
+
+function resolveTeamReference(value) {
+  const normalized = normalizeLookupValue(value);
+  if (!normalized) {
+    return "";
+  }
+  const team = state.teams.find((item) => item.id === value || normalizeLookupValue(item.name) === normalized);
+  return team ? team.id : value;
+}
+
 function isAdmin() {
   return Boolean(state.user?.roles?.includes("admin"));
 }
@@ -784,7 +808,7 @@ function showBanner(message, type = "error") {
     state.bannerTimer = null;
   }
 
-  elements.errorBanner.textContent = message;
+  elements.errorBanner.textContent = type === "success" ? `Успешно: ${message}` : message;
   elements.errorBanner.classList.remove("hidden", "success");
   if (type === "success") {
     elements.errorBanner.classList.add("success");
@@ -792,7 +816,7 @@ function showBanner(message, type = "error") {
 
   state.bannerTimer = window.setTimeout(() => {
     clearBanner();
-  }, type === "success" ? 2600 : 5200);
+  }, type === "success" ? 4200 : 7000);
 }
 
 function clearBanner() {
@@ -817,5 +841,10 @@ function readStoredUser() {
     return null;
   }
 }
+
+
+
+
+
 
 

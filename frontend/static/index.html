@@ -164,11 +164,11 @@
                 </label>
                 <label>
                   <span>Исполнитель</span>
-                  <input name="assignee_id" placeholder="user-id" list="userIdSuggestions" />
+                  <input name="assignee_id" placeholder="user-id или email" list="userIdSuggestions" />
                 </label>
                 <label>
                   <span>Команда</span>
-                  <input name="team_id" placeholder="team-id" list="teamIdSuggestions" />
+                  <input name="team_id" placeholder="team-id или название" list="teamIdSuggestions" />
                 </label>
                 <label>
                   <span>Сортировка</span>
@@ -229,11 +229,11 @@
               <div class="filters-grid">
                 <label>
                   <span>Assignee ID</span>
-                  <input name="assignee_id" placeholder="user-id" list="userIdSuggestions" required />
+                  <input name="assignee_id" placeholder="user-id или email" list="userIdSuggestions" required />
                 </label>
                 <label>
                   <span>Team ID</span>
-                  <input name="team_id" placeholder="team-id" list="teamIdSuggestions" required />
+                  <input name="team_id" placeholder="team-id или название" list="teamIdSuggestions" required />
                 </label>
                 <label>
                   <span>Приоритет</span>
@@ -306,7 +306,7 @@
                   </fieldset>
                   <label>
                     <span>Команды</span>
-                    <input name="team_ids" placeholder="team-id-1, team-id-2" />
+                    <input name="team_ids" placeholder="team-id или названия через запятую" />
                   </label>
                   <button type="submit">Создать пользователя</button>
                 </form>
@@ -334,11 +334,11 @@
                 <form id="addTeamMemberForm" class="stack-form">
                   <label>
                     <span>Team ID</span>
-                    <input name="team_id" placeholder="team-id" list="teamIdSuggestions" required />
+                    <input name="team_id" placeholder="team-id или название" list="teamIdSuggestions" required />
                   </label>
                   <label>
                     <span>User ID</span>
-                    <input name="user_id" placeholder="user-id" list="userIdSuggestions" required />
+                    <input name="user_id" placeholder="user-id или email" list="userIdSuggestions" required />
                   </label>
                   <button type="submit">Добавить участника</button>
                 </form>
@@ -436,3 +436,4 @@
     <script src="/app.js"></script>
   </body>
 </html>
+
