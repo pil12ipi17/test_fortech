@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   --bg: #efe6d8;
   --surface: rgba(255, 252, 246, 0.92);
   --surface-strong: #fffdf9;
@@ -35,9 +35,16 @@ button {
   background: var(--accent);
   color: white;
   cursor: pointer;
-  transition: transform 0.16s ease, opacity 0.16s ease;
+  transition: transform 0.16s ease, opacity 0.16s ease, box-shadow 0.16s ease;
 }
 button:hover { opacity: 0.94; transform: translateY(-1px); }
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid rgba(13, 107, 97, 0.32);
+  outline-offset: 2px;
+}
 button.ghost { background: rgba(13, 107, 97, 0.12); color: var(--accent); }
 button.danger { background: var(--danger); }
 input, textarea, select {
@@ -151,15 +158,22 @@ code {
 .app-view {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 320px minmax(0, 1fr);
 }
 .app-sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  min-height: 100vh;
   padding: 1.6rem;
   border-right: 1px solid rgba(27,36,40,0.08);
   background: rgba(255,252,246,0.74);
   backdrop-filter: blur(12px);
 }
-.app-main { padding: 1.6rem; }
+.app-main {
+  padding: 1.6rem;
+  max-width: 1320px;
+}
 .app-header {
   margin-bottom: 1.4rem;
   padding: 1.4rem 1.5rem;
@@ -253,6 +267,7 @@ code {
   border: 1px dashed var(--border);
   border-radius: 18px;
   color: var(--muted);
+  background: rgba(255,255,255,0.42);
 }
 .task-card {
   padding: 1rem;
@@ -348,7 +363,13 @@ code {
   .app-view, .auth-layout, .reference-grid, .filters-grid, .task-meta, .status-form {
     grid-template-columns: 1fr;
   }
+
+  .app-sidebar {
+    position: static;
+    min-height: auto;
+  }
 }
 @media (max-width: 900px) {
   .auth-view, .app-sidebar, .app-main { padding: 1rem; }
+  .split { flex-direction: column; }
 }

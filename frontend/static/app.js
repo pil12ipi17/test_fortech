@@ -1,4 +1,4 @@
-const API_BASE = window.__API_BASE__ || "/api/v1";
+﻿const API_BASE = window.__API_BASE__ || "/api/v1";
 const storageKeys = {
   accessToken: "task_console_access_token",
   refreshToken: "task_console_refresh_token",
@@ -31,6 +31,7 @@ const state = {
   teamDirectoryState: "idle",
   activeScreen: "tasks",
   authMode: "login",
+  bannerTimer: null,
 };
 
 const elements = {
@@ -490,7 +491,7 @@ function updateReferenceBadge(node, stateValue, label) {
       break;
     case "loading":
       node.classList.add("neutral");
-      node.textContent = "Загрузка…";
+      node.textContent = "Загрузка...";
       break;
     case "denied":
       node.classList.add("denied");
@@ -510,7 +511,7 @@ function updateReferenceBadge(node, stateValue, label) {
 function renderReferenceList(container, items, mapper, stateValue, emptyText) {
   if (stateValue === "loading") {
     container.className = "reference-list empty-state";
-    container.innerHTML = "<p>Загрузка справочника…</p>";
+    container.innerHTML = "<p>Загрузка справочника...</p>";
     return;
   }
 
@@ -629,14 +630,27 @@ function handleApiError(error) {
 }
 
 function showBanner(message, type = "error") {
+  if (state.bannerTimer) {
+    clearTimeout(state.bannerTimer);
+    state.bannerTimer = null;
+  }
+
   elements.errorBanner.textContent = message;
   elements.errorBanner.classList.remove("hidden", "success");
   if (type === "success") {
     elements.errorBanner.classList.add("success");
   }
+
+  state.bannerTimer = window.setTimeout(() => {
+    clearBanner();
+  }, type === "success" ? 2600 : 5200);
 }
 
 function clearBanner() {
+  if (state.bannerTimer) {
+    clearTimeout(state.bannerTimer);
+    state.bannerTimer = null;
+  }
   elements.errorBanner.textContent = "";
   elements.errorBanner.classList.add("hidden");
   elements.errorBanner.classList.remove("success");
