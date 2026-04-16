@@ -8,8 +8,9 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
+from .audit import add_audit_log
 from .db import get_db
-from .models import AuditLog, IdempotencyKey, Task, TaskPriority, TaskStatus, TaskStatusHistory
+from .models import IdempotencyKey, Task, TaskPriority, TaskStatus, TaskStatusHistory
 from .schemas import (
     CurrentUser,
     SortOrder,
@@ -73,31 +74,6 @@ def ensure_utc(value: datetime) -> datetime:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
 
-
-def serialize_details(details: dict | None) -> str:
-    return json.dumps(details or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
-def add_audit_log(
-    *,
-    db: Session,
-    actor_user_id: str | None,
-    action: str,
-    target_type: str,
-    target_id: str | None,
-    details: dict | None = None,
-    result: str = "success",
-) -> None:
-    db.add(
-        AuditLog(
-            actor_user_id=actor_user_id,
-            action=action,
-            target_type=target_type,
-            target_id=target_id,
-            result=result,
-            details_json=serialize_details(details),
-        )
-    )
 
 
 def compute_request_hash(payload: dict) -> str:
