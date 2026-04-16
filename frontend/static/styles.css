@@ -55,6 +55,12 @@ input, textarea, select {
   background: rgba(255,255,255,0.84);
 }
 textarea { resize: vertical; }
+fieldset {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+legend,
 label span {
   display: block;
   margin-bottom: 0.45rem;
@@ -250,6 +256,32 @@ code {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.85rem;
 }
+.manage-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+.checkbox-group {
+  display: grid;
+  gap: 0.5rem;
+}
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.62);
+  border: 1px solid rgba(27,36,40,0.08);
+}
+.checkbox-group input {
+  width: auto;
+  margin: 0;
+}
+.checkbox-group label span {
+  margin: 0;
+  color: var(--ink);
+}
 .inline-note {
   margin-bottom: 1rem;
   padding: 0.9rem 1rem;
@@ -352,7 +384,17 @@ code {
 .task-meta dt,
 .reference-meta dt { color: var(--muted); font-size: 0.82rem; }
 .task-meta dd,
-.reference-meta dd { margin: 0.2rem 0 0; font-weight: 600; word-break: break-word; }
+.reference-meta dd {
+  margin: 0.2rem 0 0;
+  font-weight: 600;
+  word-break: break-word;
+}
+.meta-secondary {
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  word-break: break-word;
+}
 .status-form {
   display: grid;
   grid-template-columns: 1fr 2fr auto;
@@ -360,7 +402,7 @@ code {
   align-items: end;
 }
 @media (max-width: 1180px) {
-  .app-view, .auth-layout, .reference-grid, .filters-grid, .task-meta, .status-form {
+  .app-view, .auth-layout, .reference-grid, .filters-grid, .task-meta, .status-form, .manage-grid {
     grid-template-columns: 1fr;
   }
 

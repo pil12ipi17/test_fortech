@@ -18,6 +18,10 @@ const screenMeta = {
     title: "Справочник пользователей и команд",
     subtitle: "Этот экран помогает быстро находить рабочие ID и понимать, какие маршруты доступны текущей роли.",
   },
+  manage: {
+    title: "Управление пользователями и командами",
+    subtitle: "Админские операции поверх уже существующих auth-service контрактов: создание пользователей, команд и membership.",
+  },
 };
 
 const state = {
@@ -43,6 +47,9 @@ const elements = {
   showRegisterButton: document.getElementById("showRegisterButton"),
   filtersForm: document.getElementById("filtersForm"),
   createTaskForm: document.getElementById("createTaskForm"),
+  createAdminUserForm: document.getElementById("createAdminUserForm"),
+  createTeamForm: document.getElementById("createTeamForm"),
+  addTeamMemberForm: document.getElementById("addTeamMemberForm"),
   reloadTasksButton: document.getElementById("reloadTasksButton"),
   resetFiltersButton: document.getElementById("resetFiltersButton"),
   refreshButton: document.getElementById("refreshButton"),
@@ -50,9 +57,11 @@ const elements = {
   openTasksViewButton: document.getElementById("openTasksViewButton"),
   openCreateViewButton: document.getElementById("openCreateViewButton"),
   openReferenceViewButton: document.getElementById("openReferenceViewButton"),
+  openManageViewButton: document.getElementById("openManageViewButton"),
   tasksScreen: document.getElementById("tasksScreen"),
   createScreen: document.getElementById("createScreen"),
   referenceScreen: document.getElementById("referenceScreen"),
+  manageScreen: document.getElementById("manageScreen"),
   screenTitle: document.getElementById("screenTitle"),
   screenSubtitle: document.getElementById("screenSubtitle"),
   tasksList: document.getElementById("tasksList"),
@@ -101,12 +110,16 @@ function bindEvents() {
   elements.filtersForm.addEventListener("submit", handleFiltersSubmit);
   elements.resetFiltersButton.addEventListener("click", handleFiltersReset);
   elements.createTaskForm.addEventListener("submit", handleCreateTask);
+  elements.createAdminUserForm.addEventListener("submit", handleAdminUserCreate);
+  elements.createTeamForm.addEventListener("submit", handleTeamCreate);
+  elements.addTeamMemberForm.addEventListener("submit", handleTeamMemberCreate);
   elements.reloadTasksButton.addEventListener("click", () => loadTasks().catch(handleApiError));
   elements.refreshButton.addEventListener("click", handleRefresh);
   elements.logoutButton.addEventListener("click", handleLogout);
   elements.openTasksViewButton.addEventListener("click", () => setScreen("tasks"));
   elements.openCreateViewButton.addEventListener("click", () => setScreen("create"));
   elements.openReferenceViewButton.addEventListener("click", () => setScreen("reference"));
+  elements.openManageViewButton.addEventListener("click", () => setScreen("manage"));
 }
 
 async function hydrateWorkspace() {
@@ -129,13 +142,19 @@ function renderAuthMode() {
 }
 
 function setScreen(screen) {
+  if (screen === "manage" && !isAdmin()) {
+    screen = "tasks";
+  }
+
   state.activeScreen = screen;
   elements.tasksScreen.classList.toggle("hidden", screen !== "tasks");
   elements.createScreen.classList.toggle("hidden", screen !== "create");
   elements.referenceScreen.classList.toggle("hidden", screen !== "reference");
+  elements.manageScreen.classList.toggle("hidden", screen !== "manage");
   elements.openTasksViewButton.classList.toggle("active", screen === "tasks");
   elements.openCreateViewButton.classList.toggle("active", screen === "create");
   elements.openReferenceViewButton.classList.toggle("active", screen === "reference");
+  elements.openManageViewButton.classList.toggle("active", screen === "manage");
 
   const meta = screenMeta[screen];
   elements.screenTitle.textContent = meta.title;
@@ -243,6 +262,73 @@ async function handleCreateTask(event) {
   showBanner(`Задача «${task.title}» создана.`, "success");
 }
 
+async function handleAdminUserCreate(event) {
+  event.preventDefault();
+  clearBanner();
+
+  const form = event.currentTarget;
+  const formData = new FormData(form);
+  const roles = Array.from(form.querySelectorAll('input[name="roles"]:checked')).map((input) => input.value);
+  const teamIds = parseCsvList(formData.get("team_ids"));
+
+  if (!roles.length) {
+    showBanner("Для нового пользователя нужно выбрать хотя бы одну роль.");
+    return;
+  }
+
+  const payload = {
+    email: String(formData.get("email") || "").trim(),
+    password: String(formData.get("password") || ""),
+    roles,
+    team_ids: teamIds,
+  };
+
+  const user = await apiFetch("/users", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json" },
+  });
+
+  form.reset();
+  form.querySelector('input[name="roles"][value="user"]').checked = true;
+  await loadReferenceData();
+  showBanner(`Пользователь ${user.email} создан.`, "success");
+}
+
+async function handleTeamCreate(event) {
+  event.preventDefault();
+  clearBanner();
+
+  const formData = new FormData(event.currentTarget);
+  const team = await apiFetch("/teams", {
+    method: "POST",
+    body: JSON.stringify({ name: String(formData.get("name") || "").trim() }),
+    headers: { "Content-Type": "application/json" },
+  });
+
+  event.currentTarget.reset();
+  await loadReferenceData();
+  showBanner(`Команда ${team.name} создана.`, "success");
+}
+
+async function handleTeamMemberCreate(event) {
+  event.preventDefault();
+  clearBanner();
+
+  const formData = new FormData(event.currentTarget);
+  const teamId = String(formData.get("team_id") || "").trim();
+  const userId = String(formData.get("user_id") || "").trim();
+  await apiFetch(`/teams/${teamId}/members`, {
+    method: "POST",
+    body: JSON.stringify({ user_id: userId }),
+    headers: { "Content-Type": "application/json" },
+  });
+
+  event.currentTarget.reset();
+  await loadReferenceData();
+  showBanner("Участник добавлен в команду.", "success");
+}
+
 async function handleStatusChange(taskId, form) {
   clearBanner();
   const formData = new FormData(form);
@@ -312,6 +398,7 @@ async function loadReferenceData() {
   }
 
   renderReferenceData();
+  renderSession();
 }
 
 async function apiFetch(path, options = {}, allowRetry = true, quiet = false) {
@@ -406,13 +493,19 @@ function renderSession() {
     elements.sessionRoles.textContent = "-";
     elements.sessionTeams.textContent = "-";
     elements.connectionBadge.textContent = "Ожидает авторизации";
+    elements.openManageViewButton.classList.add("hidden");
     return;
   }
 
   elements.sessionEmail.textContent = state.user.email;
   elements.sessionRoles.textContent = (state.user.roles || []).join(", ") || "-";
-  elements.sessionTeams.textContent = (state.user.team_ids || []).join(", ") || "-";
-  elements.connectionBadge.textContent = "Сессия активна";
+  elements.sessionTeams.textContent = formatTeamList(state.user.team_ids) || "-";
+  elements.connectionBadge.textContent = `Сессия активна · ${(state.user.roles || []).join(", ")}`;
+  elements.openManageViewButton.classList.toggle("hidden", !isAdmin());
+
+  if (!isAdmin() && state.activeScreen === "manage") {
+    setScreen("tasks");
+  }
 }
 
 function renderTasks(result) {
@@ -433,9 +526,12 @@ function renderTasks(result) {
     fillField(fragment, "title", task.title);
     fillField(fragment, "description", task.description || "Без описания");
     fillField(fragment, "id", task.id);
-    fillField(fragment, "owner_id", task.owner_id);
-    fillField(fragment, "assignee_id", task.assignee_id);
-    fillField(fragment, "team_id", task.team_id);
+    fillField(fragment, "owner_display", formatUserLabel(task.owner_id));
+    fillField(fragment, "owner_id", formatRawId(task.owner_id));
+    fillField(fragment, "assignee_display", formatUserLabel(task.assignee_id));
+    fillField(fragment, "assignee_id", formatRawId(task.assignee_id));
+    fillField(fragment, "team_display", formatTeamLabel(task.team_id));
+    fillField(fragment, "team_id", formatRawId(task.team_id));
     fillField(fragment, "priority", task.priority);
     fillField(fragment, "deadline", task.deadline ? formatDate(task.deadline) : "-");
     fillField(fragment, "status", task.status);
@@ -479,8 +575,8 @@ function renderReferenceData() {
     state.teamDirectoryState,
     "Команды недоступны или ещё не загружены."
   );
-  renderSuggestions(elements.userIdSuggestions, users.map((user) => user.id));
-  renderSuggestions(elements.teamIdSuggestions, teams.map((team) => team.id));
+  renderSuggestions(elements.userIdSuggestions, users, (user) => `${user.email} — ${user.id}`);
+  renderSuggestions(elements.teamIdSuggestions, teams, (team) => `${team.name} — ${team.id}`);
 }
 
 function updateReferenceBadge(node, stateValue, label) {
@@ -539,11 +635,12 @@ function renderReferenceList(container, items, mapper, stateValue, emptyText) {
   }
 }
 
-function renderSuggestions(container, values) {
+function renderSuggestions(container, items, formatter) {
   container.innerHTML = "";
-  for (const value of values) {
+  for (const item of items) {
     const option = document.createElement("option");
-    option.value = value;
+    option.value = item.id;
+    option.label = formatter(item);
     container.appendChild(option);
   }
 }
@@ -553,7 +650,7 @@ function mapUserReferenceItem(user) {
     title: user.email,
     subtitle: (user.roles || []).join(", ") || "Без ролей",
     id: user.id,
-    extra: (user.team_ids || []).join(", ") || "Без команд",
+    extra: formatTeamList(user.team_ids) || "Без команд",
     badge: user.is_active === false ? "inactive" : "active",
   };
 }
@@ -561,11 +658,63 @@ function mapUserReferenceItem(user) {
 function mapTeamReferenceItem(team) {
   return {
     title: team.name,
-    subtitle: "Команда",
+    subtitle: `${team.member_count} участников`,
     id: team.id,
-    extra: team.created_at ? formatDate(team.created_at) : "-",
+    extra: team.created_at ? `Создана ${formatDate(team.created_at)}` : "-",
     badge: "team",
   };
+}
+
+function parseCsvList(rawValue) {
+  return String(rawValue || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function isAdmin() {
+  return Boolean(state.user?.roles?.includes("admin"));
+}
+
+function findUserById(userId) {
+  if (!userId) {
+    return null;
+  }
+  if (state.user?.id === userId) {
+    return state.user;
+  }
+  return state.users.find((user) => user.id === userId) || null;
+}
+
+function findTeamById(teamId) {
+  if (!teamId) {
+    return null;
+  }
+  return state.teams.find((team) => team.id === teamId) || null;
+}
+
+function formatUserLabel(userId) {
+  const user = findUserById(userId);
+  if (!user) {
+    return userId || "-";
+  }
+  return user.id === state.user?.id ? `${user.email} (ты)` : user.email;
+}
+
+function formatTeamLabel(teamId) {
+  const team = findTeamById(teamId);
+  return team ? team.name : teamId || "-";
+}
+
+function formatTeamList(teamIds) {
+  if (!Array.isArray(teamIds) || !teamIds.length) {
+    return "";
+  }
+  return teamIds.map((teamId) => formatTeamLabel(teamId)).join(", ");
+}
+
+function formatRawId(value) {
+  return value ? `ID: ${value}` : "";
 }
 
 function toItems(payload) {
@@ -668,3 +817,5 @@ function readStoredUser() {
     return null;
   }
 }
+
+

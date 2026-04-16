@@ -84,6 +84,7 @@
           <button id="openTasksViewButton" class="nav-link active" type="button">Задачи</button>
           <button id="openCreateViewButton" class="nav-link" type="button">Создать</button>
           <button id="openReferenceViewButton" class="nav-link" type="button">Справочник</button>
+          <button id="openManageViewButton" class="nav-link hidden" type="button">Управление</button>
         </nav>
 
         <div class="session-card">
@@ -114,7 +115,7 @@
           <ol>
             <li>Войди или зарегистрируйся.</li>
             <li>Открой «Справочник», если нужны ID пользователей и команд.</li>
-            <li>Создай задачу и вернись в список, чтобы проверить lifecycle.</li>
+            <li>Создай задачу или управляй командами, потом вернись в список и проверь lifecycle.</li>
           </ol>
         </div>
       </aside>
@@ -280,6 +281,70 @@
               </section>
             </div>
           </section>
+
+          <section id="manageScreen" class="hidden">
+            <div class="manage-grid">
+              <section class="panel">
+                <div class="panel-head">
+                  <h2>Создание пользователя</h2>
+                  <p>Админский сценарий через <code>POST /users</code>.</p>
+                </div>
+                <form id="createAdminUserForm" class="stack-form">
+                  <label>
+                    <span>Email</span>
+                    <input name="email" type="email" placeholder="member@example.com" required />
+                  </label>
+                  <label>
+                    <span>Пароль</span>
+                    <input name="password" type="password" placeholder="Минимум 8 символов" required />
+                  </label>
+                  <fieldset class="checkbox-group">
+                    <legend>Роли</legend>
+                    <label><input type="checkbox" name="roles" value="user" checked /> <span>user</span></label>
+                    <label><input type="checkbox" name="roles" value="teamlead" /> <span>teamlead</span></label>
+                    <label><input type="checkbox" name="roles" value="admin" /> <span>admin</span></label>
+                  </fieldset>
+                  <label>
+                    <span>Команды</span>
+                    <input name="team_ids" placeholder="team-id-1, team-id-2" />
+                  </label>
+                  <button type="submit">Создать пользователя</button>
+                </form>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head">
+                  <h2>Создание команды</h2>
+                  <p>Админский сценарий через <code>POST /teams</code>.</p>
+                </div>
+                <form id="createTeamForm" class="stack-form">
+                  <label>
+                    <span>Название команды</span>
+                    <input name="name" placeholder="Например: Platform" required />
+                  </label>
+                  <button type="submit">Создать команду</button>
+                </form>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head">
+                  <h2>Добавление участника в команду</h2>
+                  <p>Админский сценарий через <code>POST /teams/{team_id}/members</code>.</p>
+                </div>
+                <form id="addTeamMemberForm" class="stack-form">
+                  <label>
+                    <span>Team ID</span>
+                    <input name="team_id" placeholder="team-id" list="teamIdSuggestions" required />
+                  </label>
+                  <label>
+                    <span>User ID</span>
+                    <input name="user_id" placeholder="user-id" list="userIdSuggestions" required />
+                  </label>
+                  <button type="submit">Добавить участника</button>
+                </form>
+              </section>
+            </div>
+          </section>
         </div>
       </main>
     </section>
@@ -304,15 +369,18 @@
           </div>
           <div>
             <dt>Owner</dt>
-            <dd data-field="owner_id"></dd>
+            <dd data-field="owner_display"></dd>
+            <div class="meta-secondary" data-field="owner_id"></div>
           </div>
           <div>
             <dt>Assignee</dt>
-            <dd data-field="assignee_id"></dd>
+            <dd data-field="assignee_display"></dd>
+            <div class="meta-secondary" data-field="assignee_id"></div>
           </div>
           <div>
             <dt>Команда</dt>
-            <dd data-field="team_id"></dd>
+            <dd data-field="team_display"></dd>
+            <div class="meta-secondary" data-field="team_id"></div>
           </div>
           <div>
             <dt>Приоритет</dt>
