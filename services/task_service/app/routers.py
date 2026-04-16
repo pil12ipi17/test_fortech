@@ -5,7 +5,7 @@ from math import ceil
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from fastapi.responses import JSONResponse
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from .db import get_db
@@ -21,12 +21,11 @@ from .schemas import (
     TaskStatusUpdate,
     TaskUpdate,
 )
+from .rbac import apply_visibility_scope, can_delete_task, can_manage_task, get_task_if_visible
 from .security import get_current_user
 
 router = APIRouter(tags=["tasks"])
 
-ADMIN_ROLE = "admin"
-TEAMLEAD_ROLE = "teamlead"
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
 IDEMPOTENCY_TTL = timedelta(hours=24)
@@ -41,40 +40,6 @@ ALLOWED_STATUS_TRANSITIONS = {
     TaskStatus.CANCELLED: set(),
 }
 
-
-def can_view_task(*, task: Task, current_user: CurrentUser) -> bool:
-    if ADMIN_ROLE in current_user.roles:
-        return True
-    if TEAMLEAD_ROLE in current_user.roles and task.team_id in current_user.team_ids:
-        return True
-    return current_user.user_id in {task.owner_id, task.assignee_id}
-
-
-def can_manage_task(*, task: Task, current_user: CurrentUser) -> bool:
-    return can_view_task(task=task, current_user=current_user)
-
-
-def can_delete_task(*, task: Task, current_user: CurrentUser) -> bool:
-    if ADMIN_ROLE in current_user.roles:
-        return True
-    if TEAMLEAD_ROLE in current_user.roles and task.team_id in current_user.team_ids:
-        return True
-    return current_user.user_id == task.owner_id
-
-
-def get_task_if_visible(*, db: Session, task_id: str, current_user: CurrentUser) -> Task:
-    task = db.get(Task, task_id)
-    if task is None or not can_view_task(task=task, current_user=current_user):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
-    return task
-
-
-def apply_visibility_scope(*, statement, current_user: CurrentUser):
-    if ADMIN_ROLE in current_user.roles:
-        return statement
-    if TEAMLEAD_ROLE in current_user.roles and current_user.team_ids:
-        return statement.where(Task.team_id.in_(current_user.team_ids))
-    return statement.where(or_(Task.owner_id == current_user.user_id, Task.assignee_id == current_user.user_id))
 
 
 def build_order_clauses(*, sort_by: TaskSortBy, sort_order: SortOrder):
