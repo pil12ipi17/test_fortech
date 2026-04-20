@@ -7,6 +7,7 @@ from .config import Settings
 class RabbitMQConfig:
     url: str
     tasks_exchange: str
+    tasks_exchange_type: str = "topic"
 
 
 def build_rabbitmq_config(settings: Settings) -> RabbitMQConfig:

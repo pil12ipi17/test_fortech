@@ -75,6 +75,24 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  outbox-publisher:
+    build:
+      context: .
+      dockerfile: services/task_service/Dockerfile
+    command: ["python", "-m", "app.outbox_publisher"]
+    environment:
+      TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
+      TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
+      TASK_RABBITMQ_URL: ${TASK_RABBITMQ_URL:-amqp://task_user:task_password@rabbitmq:5672/task-system}
+      TASK_RABBITMQ_TASKS_EXCHANGE: ${TASK_RABBITMQ_TASKS_EXCHANGE:-tasks.events}
+      TASK_OUTBOX_PUBLISH_BATCH_SIZE: ${TASK_OUTBOX_PUBLISH_BATCH_SIZE:-50}
+      TASK_OUTBOX_PUBLISH_POLL_INTERVAL_SECONDS: ${TASK_OUTBOX_PUBLISH_POLL_INTERVAL_SECONDS:-2}
+    depends_on:
+      task-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
   frontend:
     build:
       context: .

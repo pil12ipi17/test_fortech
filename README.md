@@ -61,15 +61,18 @@ Next-level реализация тестового задания на `FastAPI 
 - `RabbitMQ` добавлен в локальный стенд как инфраструктурная основа этапа 4
 - конфигурация подключения к брокеру вынесена в env
 - `task-service` уже знает настройки `RabbitMQ exchange`, чтобы дальше можно было вводить outbox и publisher без пересборки конфигурационного слоя
+- `task-service` фиксирует доменные события в `outbox_events`
+- отдельный `outbox-publisher` читает `pending` события из outbox и публикует их в `RabbitMQ`
 
 ## Архитектура
 
-Стенд состоит из семи контейнеров:
+Стенд состоит из восьми контейнеров:
 - `auth-db`
 - `task-db`
 - `auth-service`
 - `task-service`
 - `rabbitmq`
+- `outbox-publisher`
 - `frontend`
 - `gateway`
 
@@ -155,6 +158,20 @@ RabbitMQ:
 - user: `task_user`
 - password: `task_password`
 - vhost: `task-system`
+
+## Event-driven foundation (stage 4)
+
+Сейчас в проекте уже подготовлен минимальный event-driven контур:
+- `task-service` создаёт transactional outbox события:
+  - `task.created`
+  - `task.status_changed`
+  - `task.deleted`
+- события пишутся в таблицу `outbox_events` в той же транзакции, что и бизнес-изменения
+- сервис `outbox-publisher` батчами читает `pending` записи из outbox и публикует их в exchange `tasks.events`
+
+Это ещё не полный этап 4, но уже закрывает два ключевых фундамента:
+- RabbitMQ как часть стенда
+- transactional outbox как защита от потери события после commit бизнес-данных
 
 ## Миграции
 

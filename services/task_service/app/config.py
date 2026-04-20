@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     token_issuer: str = "auth-service"
     rabbitmq_url: str = "amqp://task_user:task_password@rabbitmq:5672/task-system"
     rabbitmq_tasks_exchange: str = "tasks.events"
+    outbox_publish_batch_size: int = 50
+    outbox_publish_poll_interval_seconds: float = 2.0
 
     model_config = SettingsConfigDict(env_prefix="TASK_", case_sensitive=False)
 
