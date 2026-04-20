@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -122,3 +122,38 @@ class OutboxEvent(Base):
         index=True,
     )
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ProcessedEvent(Base):
+    __tablename__ = "processed_events"
+    __table_args__ = (UniqueConstraint("event_id", "consumer_name", name="uq_processed_events_event_consumer"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    event_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    consumer_name: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    correlation_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    processed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+
+
+class WorkerEventLog(Base):
+    __tablename__ = "worker_event_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    consumer_name: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    event_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    correlation_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )

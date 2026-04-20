@@ -10,7 +10,15 @@ os.environ["TASK_JWT_SECRET"] = "test-secret"
 
 from services.task_service.app.db import SessionLocal, run_migrations  # noqa: E402
 from services.task_service.app.main import app  # noqa: E402
-from services.task_service.app.models import AuditLog, IdempotencyKey, OutboxEvent, Task, TaskStatusHistory  # noqa: E402
+from services.task_service.app.models import (  # noqa: E402
+    AuditLog,
+    IdempotencyKey,
+    OutboxEvent,
+    ProcessedEvent,
+    Task,
+    TaskStatusHistory,
+    WorkerEventLog,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -19,6 +27,8 @@ def clear_task_tables():
     db = SessionLocal()
     try:
         db.query(AuditLog).delete()
+        db.query(WorkerEventLog).delete()
+        db.query(ProcessedEvent).delete()
         db.query(OutboxEvent).delete()
         db.query(IdempotencyKey).delete()
         db.query(TaskStatusHistory).delete()

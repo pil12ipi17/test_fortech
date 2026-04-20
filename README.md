@@ -63,16 +63,19 @@ Next-level реализация тестового задания на `FastAPI 
 - `task-service` уже знает настройки `RabbitMQ exchange`, чтобы дальше можно было вводить outbox и publisher без пересборки конфигурационного слоя
 - `task-service` фиксирует доменные события в `outbox_events`
 - отдельный `outbox-publisher` читает `pending` события из outbox и публикует их в `RabbitMQ`
+- отдельные `notification-worker` и `audit-worker` читают `task.*` события из своих очередей и ведут независимую обработку с защитой от дублей
 
 ## Архитектура
 
-Стенд состоит из восьми контейнеров:
+Стенд состоит из десяти контейнеров:
 - `auth-db`
 - `task-db`
 - `auth-service`
 - `task-service`
 - `rabbitmq`
 - `outbox-publisher`
+- `notification-worker`
+- `audit-worker`
 - `frontend`
 - `gateway`
 
@@ -168,10 +171,18 @@ RabbitMQ:
   - `task.deleted`
 - события пишутся в таблицу `outbox_events` в той же транзакции, что и бизнес-изменения
 - сервис `outbox-publisher` батчами читает `pending` записи из outbox и публикует их в exchange `tasks.events`
+- `notification-worker` читает очередь `notifications.task-events` и фиксирует свою обработку в `worker_event_logs`
+- `audit-worker` читает очередь `audit.task-events` и фиксирует свою обработку в `worker_event_logs`
+- таблица `processed_events` защищает consumers от повторной обработки одного и того же `event_id`
 
 Это ещё не полный этап 4, но уже закрывает два ключевых фундамента:
 - RabbitMQ как часть стенда
 - transactional outbox как защита от потери события после commit бизнес-данных
+
+Следующий слой надёжности ещё впереди:
+- retry policy
+- DLQ
+- более подробная наблюдаемость worker'ов
 
 ## Миграции
 
