@@ -7,6 +7,7 @@ Next-level реализация тестового задания на `FastAPI 
 - `task-service` — задачи, lifecycle статусов, RBAC, фильтрация, идемпотентность, audit task-действий
 - `frontend` — тонкий web-клиент для проверки API-сценариев
 - `gateway (nginx)` — единая точка входа для frontend и backend
+- `rabbitmq` — брокер сообщений и база для event-driven контура этапа 4
 - `auth-db` и `task-db` — отдельные PostgreSQL базы данных
 
 ## Что реализовано
@@ -56,13 +57,19 @@ Next-level реализация тестового задания на `FastAPI 
 - базовые security headers в gateway
 - `.env.example` для общих переменных окружения
 
+### Event-driven foundation
+- `RabbitMQ` добавлен в локальный стенд как инфраструктурная основа этапа 4
+- конфигурация подключения к брокеру вынесена в env
+- `task-service` уже знает настройки `RabbitMQ exchange`, чтобы дальше можно было вводить outbox и publisher без пересборки конфигурационного слоя
+
 ## Архитектура
 
-Стенд состоит из шести контейнеров:
+Стенд состоит из семи контейнеров:
 - `auth-db`
 - `task-db`
 - `auth-service`
 - `task-service`
+- `rabbitmq`
 - `frontend`
 - `gateway`
 
@@ -112,10 +119,14 @@ docker compose up --build -d
 ### Ожидаемые URL
 
 Единая точка входа:
-- `http://localhost:8080/` — frontend
-- `http://localhost:8080/health` — gateway health
-- `http://localhost:8080/api/v1/health/auth` — readiness auth-service через gateway
-- `http://localhost:8080/api/v1/health/task` — readiness task-service через gateway
+- `http://localhost/` — frontend
+- `http://localhost/health` — gateway health
+- `http://localhost/api/v1/health/auth` — readiness auth-service через gateway
+- `http://localhost/api/v1/health/task` — readiness task-service через gateway
+
+RabbitMQ:
+- `amqp://localhost:5672` — AMQP-подключение
+- `http://localhost:15672` — management UI
 
 Прямой доступ к БД:
 - `auth-db` -> `localhost:5433`
@@ -136,6 +147,14 @@ docker compose up --build -d
 - db: `task_db`
 - user: `task_user`
 - password: `task_password`
+
+### RabbitMQ
+- host: `localhost`
+- AMQP port: `5672`
+- management UI: `15672`
+- user: `task_user`
+- password: `task_password`
+- vhost: `task-system`
 
 ## Миграции
 

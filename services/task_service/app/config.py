@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
     token_issuer: str = "auth-service"
+    rabbitmq_url: str = "amqp://task_user:task_password@rabbitmq:5672/task-system"
+    rabbitmq_tasks_exchange: str = "tasks.events"
 
     model_config = SettingsConfigDict(env_prefix="TASK_", case_sensitive=False)
 
@@ -16,4 +18,3 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-
