@@ -10,7 +10,7 @@ os.environ["TASK_JWT_SECRET"] = "test-secret"
 
 from services.task_service.app.db import SessionLocal, run_migrations  # noqa: E402
 from services.task_service.app.main import app  # noqa: E402
-from services.task_service.app.models import AuditLog, IdempotencyKey, Task, TaskStatusHistory  # noqa: E402
+from services.task_service.app.models import AuditLog, IdempotencyKey, OutboxEvent, Task, TaskStatusHistory  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -19,6 +19,7 @@ def clear_task_tables():
     db = SessionLocal()
     try:
         db.query(AuditLog).delete()
+        db.query(OutboxEvent).delete()
         db.query(IdempotencyKey).delete()
         db.query(TaskStatusHistory).delete()
         db.query(Task).delete()
@@ -143,6 +144,12 @@ def test_task_rbac_audit_readiness_and_error_format():
         assert action_list.count("task.updated") == 1
         assert action_list.count("task.status_changed") == 1
         assert action_list.count("task.deleted") == 1
+
+        outbox_event_types = db.query(OutboxEvent.event_type).order_by(OutboxEvent.created_at.asc()).all()
+        outbox_type_list = [event_type for (event_type,) in outbox_event_types]
+        assert outbox_type_list.count("task.created") == 1
+        assert outbox_type_list.count("task.status_changed") == 1
+        assert outbox_type_list.count("task.deleted") == 1
     finally:
         db.close()
 
@@ -332,7 +339,11 @@ def test_idempotency_replays_create_and_status_change_without_duplicate_audit():
     try:
         create_count = db.query(AuditLog).filter(AuditLog.action == "task.created").count()
         status_count = db.query(AuditLog).filter(AuditLog.action == "task.status_changed").count()
+        create_outbox_count = db.query(OutboxEvent).filter(OutboxEvent.event_type == "task.created").count()
+        status_outbox_count = db.query(OutboxEvent).filter(OutboxEvent.event_type == "task.status_changed").count()
         assert create_count == 1
         assert status_count == 1
+        assert create_outbox_count == 1
+        assert status_outbox_count == 1
     finally:
         db.close()
