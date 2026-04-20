@@ -1,8 +1,7 @@
-import json
+import asyncio
 import logging
-import time
 
-import pika
+import aio_pika
 
 from .config import get_settings
 from .db import SessionLocal, run_migrations
@@ -16,23 +15,22 @@ logging.basicConfig(
 logger = logging.getLogger("task-outbox-publisher")
 
 
-def create_channel():
+async def create_exchange():
     settings = get_settings()
     rabbitmq = build_rabbitmq_config(settings)
-    parameters = pika.URLParameters(rabbitmq.url)
-    connection = pika.BlockingConnection(parameters)
-    channel = connection.channel()
-    channel.exchange_declare(
-        exchange=rabbitmq.tasks_exchange,
-        exchange_type=rabbitmq.tasks_exchange_type,
+    connection = await aio_pika.connect_robust(rabbitmq.url)
+    channel = await connection.channel()
+    exchange = await channel.declare_exchange(
+        rabbitmq.tasks_exchange,
+        type=rabbitmq.tasks_exchange_type,
         durable=True,
     )
-    return connection, channel, rabbitmq
+    return connection, channel, exchange
 
 
-def publish_pending_events_once() -> int:
+async def publish_pending_events_once() -> int:
     settings = get_settings()
-    connection, channel, rabbitmq = create_channel()
+    connection, channel, exchange = await create_exchange()
     published = 0
 
     try:
@@ -44,24 +42,21 @@ def publish_pending_events_once() -> int:
 
             for event in events:
                 try:
-                    channel.basic_publish(
-                        exchange=rabbitmq.tasks_exchange,
-                        routing_key=event.event_type,
+                    message = aio_pika.Message(
                         body=event.payload_json.encode("utf-8"),
-                        properties=pika.BasicProperties(
-                            delivery_mode=2,
-                            content_type="application/json",
-                            message_id=event.event_id,
-                            correlation_id=event.correlation_id,
-                            type=event.event_type,
-                            headers={
-                                "event_id": event.event_id,
-                                "event_type": event.event_type,
-                                "event_version": event.version,
-                                "producer": event.producer,
-                            },
-                        ),
+                        content_type="application/json",
+                        delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                        message_id=event.event_id,
+                        correlation_id=event.correlation_id,
+                        type=event.event_type,
+                        headers={
+                            "event_id": event.event_id,
+                            "event_type": event.event_type,
+                            "event_version": event.version,
+                            "producer": event.producer,
+                        },
                     )
+                    await exchange.publish(message, routing_key=event.event_type)
                     mark_outbox_event_published(event=event)
                     published += 1
                     logger.info(
@@ -82,18 +77,19 @@ def publish_pending_events_once() -> int:
         finally:
             db.close()
     finally:
-        connection.close()
+        await channel.close()
+        await connection.close()
 
 
-def run_forever() -> None:
+async def run_forever() -> None:
     settings = get_settings()
     run_migrations()
     logger.info("Outbox publisher started")
     while True:
-        published = publish_pending_events_once()
+        published = await publish_pending_events_once()
         if published == 0:
-            time.sleep(settings.outbox_publish_poll_interval_seconds)
+            await asyncio.sleep(settings.outbox_publish_poll_interval_seconds)
 
 
 if __name__ == "__main__":
-    run_forever()
+    asyncio.run(run_forever())
