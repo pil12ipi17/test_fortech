@@ -174,14 +174,20 @@ RabbitMQ:
 - `notification-worker` читает очередь `notifications.task-events` и фиксирует свою обработку в `worker_event_logs`
 - `audit-worker` читает очередь `audit.task-events` и фиксирует свою обработку в `worker_event_logs`
 - таблица `processed_events` защищает consumers от повторной обработки одного и того же `event_id`
+- consumers используют bounded retry через header `x-retry-count`
+- после превышения `TASK_WORKER_MAX_RETRY_ATTEMPTS` сообщение уходит в DLQ:
+  - `notifications.task-events.dlq`
+  - `audit.task-events.dlq`
 
-Это ещё не полный этап 4, но уже закрывает два ключевых фундамента:
+Это ещё не полный этап 4, но уже закрывает ключевые фундаменты:
 - RabbitMQ как часть стенда
 - transactional outbox как защита от потери события после commit бизнес-данных
+- outbox publisher
+- отдельные consumers
+- базовая идемпотентность consumers
+- retry/DLQ для ошибок обработки
 
-Следующий слой надёжности ещё впереди:
-- retry policy
-- DLQ
+Следующий слой ещё впереди:
 - более подробная наблюдаемость worker'ов
 
 ## Миграции

@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     rabbitmq_tasks_exchange: str = "tasks.events"
     outbox_publish_batch_size: int = 50
     outbox_publish_poll_interval_seconds: float = 2.0
+    worker_max_retry_attempts: int = 3
 
     model_config = SettingsConfigDict(env_prefix="TASK_", case_sensitive=False)
 

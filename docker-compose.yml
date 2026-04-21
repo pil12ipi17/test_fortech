@@ -69,6 +69,7 @@ services:
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
       TASK_RABBITMQ_URL: ${TASK_RABBITMQ_URL:-amqp://task_user:task_password@rabbitmq:5672/task-system}
       TASK_RABBITMQ_TASKS_EXCHANGE: ${TASK_RABBITMQ_TASKS_EXCHANGE:-tasks.events}
+      TASK_WORKER_MAX_RETRY_ATTEMPTS: ${TASK_WORKER_MAX_RETRY_ATTEMPTS:-3}
     depends_on:
       task-db:
         condition: service_healthy
@@ -85,6 +86,7 @@ services:
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
       TASK_RABBITMQ_URL: ${TASK_RABBITMQ_URL:-amqp://task_user:task_password@rabbitmq:5672/task-system}
       TASK_RABBITMQ_TASKS_EXCHANGE: ${TASK_RABBITMQ_TASKS_EXCHANGE:-tasks.events}
+      TASK_WORKER_MAX_RETRY_ATTEMPTS: ${TASK_WORKER_MAX_RETRY_ATTEMPTS:-3}
       TASK_OUTBOX_PUBLISH_BATCH_SIZE: ${TASK_OUTBOX_PUBLISH_BATCH_SIZE:-50}
       TASK_OUTBOX_PUBLISH_POLL_INTERVAL_SECONDS: ${TASK_OUTBOX_PUBLISH_POLL_INTERVAL_SECONDS:-2}
     depends_on:
@@ -103,6 +105,7 @@ services:
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
       TASK_RABBITMQ_URL: ${TASK_RABBITMQ_URL:-amqp://task_user:task_password@rabbitmq:5672/task-system}
       TASK_RABBITMQ_TASKS_EXCHANGE: ${TASK_RABBITMQ_TASKS_EXCHANGE:-tasks.events}
+      TASK_WORKER_MAX_RETRY_ATTEMPTS: ${TASK_WORKER_MAX_RETRY_ATTEMPTS:-3}
     depends_on:
       task-db:
         condition: service_healthy
@@ -119,6 +122,7 @@ services:
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
       TASK_RABBITMQ_URL: ${TASK_RABBITMQ_URL:-amqp://task_user:task_password@rabbitmq:5672/task-system}
       TASK_RABBITMQ_TASKS_EXCHANGE: ${TASK_RABBITMQ_TASKS_EXCHANGE:-tasks.events}
+      TASK_WORKER_MAX_RETRY_ATTEMPTS: ${TASK_WORKER_MAX_RETRY_ATTEMPTS:-3}
     depends_on:
       task-db:
         condition: service_healthy
