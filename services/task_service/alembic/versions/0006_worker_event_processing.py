@@ -5,7 +5,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "task_0006_worker_event_processing"
+revision = "task_0006_worker_events"
 down_revision = "task_0005_outbox_events"
 branch_labels = None
 depends_on = None

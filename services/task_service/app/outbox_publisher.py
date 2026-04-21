@@ -4,7 +4,7 @@ import logging
 import aio_pika
 
 from .config import get_settings
-from .db import SessionLocal, run_migrations
+from .db import SessionLocal
 from .outbox import load_pending_outbox_events, mark_outbox_event_published, mark_outbox_event_retry
 from .rabbitmq import build_rabbitmq_config
 
@@ -83,7 +83,6 @@ async def publish_pending_events_once() -> int:
 
 async def run_forever() -> None:
     settings = get_settings()
-    run_migrations()
     logger.info("Outbox publisher started")
     while True:
         published = await publish_pending_events_once()

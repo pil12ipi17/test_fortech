@@ -5,7 +5,7 @@ from collections.abc import Callable
 import aio_pika
 from aio_pika.abc import HeadersType
 
-from .db import SessionLocal, run_migrations
+from .db import SessionLocal
 from .rabbitmq import build_rabbitmq_config
 from .config import get_settings
 from .worker_store import add_worker_event_log, has_processed_event, mark_event_processed
@@ -89,7 +89,6 @@ async def run_task_event_consumer(
     queue_name: str,
     note_builder: Callable[[dict], str],
 ) -> None:
-    run_migrations()
     settings = get_settings()
     connection, channel, exchange, queue = await _create_queue(queue_name=queue_name)
     logger.info("Worker started consumer=%s queue=%s", consumer_name, queue_name)
