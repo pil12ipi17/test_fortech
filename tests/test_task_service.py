@@ -19,6 +19,7 @@ from services.task_service.app.models import (  # noqa: E402
     TaskStatusHistory,
     WorkerEventLog,
 )
+from services.task_service.app.worker_store import claim_event_for_processing  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -54,6 +55,40 @@ def make_token(
         "team_ids": team_ids or [],
     }
     return jwt.encode(payload, "test-secret", algorithm="HS256")
+
+
+def test_worker_event_claim_is_idempotent_per_consumer():
+    db = SessionLocal()
+    try:
+        first_claim = claim_event_for_processing(
+            db=db,
+            event_id="event-1",
+            consumer_name="notification-worker",
+            event_type="task.created",
+            correlation_id="correlation-1",
+        )
+        second_claim = claim_event_for_processing(
+            db=db,
+            event_id="event-1",
+            consumer_name="notification-worker",
+            event_type="task.created",
+            correlation_id="correlation-1",
+        )
+        other_consumer_claim = claim_event_for_processing(
+            db=db,
+            event_id="event-1",
+            consumer_name="audit-worker",
+            event_type="task.created",
+            correlation_id="correlation-1",
+        )
+        db.commit()
+
+        assert first_claim is True
+        assert second_claim is False
+        assert other_consumer_claim is True
+        assert db.query(ProcessedEvent).count() == 2
+    finally:
+        db.close()
 
 
 def test_task_rbac_audit_readiness_and_error_format():

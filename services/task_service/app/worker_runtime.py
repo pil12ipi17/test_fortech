@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from collections.abc import Callable
@@ -8,7 +9,7 @@ from aio_pika.abc import HeadersType
 from .db import SessionLocal
 from .rabbitmq import build_rabbitmq_config
 from .config import get_settings
-from .worker_store import add_worker_event_log, has_processed_event, mark_event_processed
+from .worker_store import add_worker_event_log, claim_event_for_processing
 
 logger = logging.getLogger("task-event-worker")
 
@@ -30,6 +31,12 @@ def _retry_count(message: aio_pika.IncomingMessage) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _retry_delay_seconds(*, retry_count: int) -> float:
+    settings = get_settings()
+    delay = settings.worker_retry_backoff_base_seconds * (2**retry_count)
+    return min(delay, settings.worker_retry_backoff_max_seconds)
 
 
 async def _create_queue(*, queue_name: str):
@@ -106,7 +113,14 @@ async def run_task_event_consumer(
 
                     db = SessionLocal()
                     try:
-                        if has_processed_event(db=db, event_id=event_id, consumer_name=consumer_name):
+                        claimed = claim_event_for_processing(
+                            db=db,
+                            event_id=event_id,
+                            consumer_name=consumer_name,
+                            event_type=event_type,
+                            correlation_id=correlation_id,
+                        )
+                        if not claimed:
                             logger.info(
                                 "Skipping duplicate event_id=%s consumer=%s",
                                 event_id,
@@ -124,13 +138,6 @@ async def run_task_event_consumer(
                             correlation_id=correlation_id,
                             payload=envelope,
                             note=note,
-                        )
-                        mark_event_processed(
-                            db=db,
-                            event_id=event_id,
-                            consumer_name=consumer_name,
-                            event_type=event_type,
-                            correlation_id=correlation_id,
                         )
                         db.commit()
                         logger.info(
@@ -153,6 +160,8 @@ async def run_task_event_consumer(
                 except Exception:
                     retry_count = _retry_count(message)
                     if retry_count < settings.worker_max_retry_attempts:
+                        retry_delay_seconds = _retry_delay_seconds(retry_count=retry_count)
+                        await asyncio.sleep(retry_delay_seconds)
                         await _republish_for_retry(
                             exchange=exchange,
                             message=message,
@@ -160,10 +169,11 @@ async def run_task_event_consumer(
                         )
                         await message.ack()
                         logger.warning(
-                            "Republished event for retry consumer=%s retry=%s max_retry=%s",
+                            "Republished event for retry consumer=%s retry=%s max_retry=%s delay_seconds=%s",
                             consumer_name,
                             retry_count + 1,
                             settings.worker_max_retry_attempts,
+                            retry_delay_seconds,
                         )
                     else:
                         await message.nack(requeue=False)

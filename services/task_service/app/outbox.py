@@ -31,14 +31,16 @@ def create_outbox_event(*, envelope: dict, aggregate_type: str, aggregate_id: st
 
 
 def load_pending_outbox_events(*, db: Session, batch_size: int) -> list[OutboxEvent]:
-    return list(
-        db.scalars(
-            select(OutboxEvent)
-            .where(OutboxEvent.status == OUTBOX_PENDING)
-            .order_by(OutboxEvent.created_at.asc())
-            .limit(batch_size)
-        ).all()
+    statement = (
+        select(OutboxEvent)
+        .where(OutboxEvent.status == OUTBOX_PENDING)
+        .order_by(OutboxEvent.created_at.asc())
+        .limit(batch_size)
     )
+    if db.bind is not None and db.bind.dialect.name != "sqlite":
+        statement = statement.with_for_update(skip_locked=True)
+
+    return list(db.scalars(statement).all())
 
 
 def mark_outbox_event_published(*, event: OutboxEvent) -> None:
