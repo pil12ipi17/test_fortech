@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 
-from .notification_sender import EmailMessage, EmailSender, MockEmailSender
+from .notification_sender import EmailMessage
 from .notification_store import add_notification_delivery, build_mock_recipient_email
 
 SUPPORTED_EVENTS = {"task.created", "task.status_changed"}
@@ -44,12 +44,7 @@ def build_notification_email(envelope: dict) -> tuple[EmailMessage, str | None, 
     return None
 
 
-def handle_notification_event(
-    db: Session,
-    envelope: dict,
-    *,
-    sender: EmailSender | None = None,
-) -> str:
+def handle_notification_event(db: Session, envelope: dict) -> str:
     event_type = str(envelope.get("event_type") or "")
     if event_type not in SUPPORTED_EVENTS:
         return f"Notification skipped for unsupported event_type={event_type}"
@@ -59,8 +54,6 @@ def handle_notification_event(
         return f"Notification skipped for event_type={event_type}"
 
     message, task_id, recipient_user_id = built_email
-    sender = sender or MockEmailSender()
-    result = sender.send(message)
     add_notification_delivery(
         db=db,
         event_id=str(envelope["event_id"]),
@@ -68,8 +61,5 @@ def handle_notification_event(
         task_id=task_id,
         recipient_user_id=recipient_user_id,
         message=message,
-        result=result,
     )
-    if not result.success:
-        return f"Notification failed for event_id={envelope['event_id']} error={result.error_message}"
-    return f"Notification email sent to={message.recipient} event_type={event_type}"
+    return f"Notification queued for cron delivery to={message.recipient} event_type={event_type}"

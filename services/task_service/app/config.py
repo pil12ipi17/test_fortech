@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     auth_database_url: str | None = None
     audit_report_path: str = "/app/reports/audit_report.csv"
     audit_report_interval_seconds: float = 300.0
+    notification_dispatch_interval_seconds: float = 60.0
+    notification_dispatch_batch_size: int = 50
 
     model_config = SettingsConfigDict(env_prefix="TASK_", case_sensitive=False)
 

@@ -23,6 +23,7 @@ from services.task_service.app.models import (  # noqa: E402
 )
 from services.task_service.app.audit_report import generate_audit_report  # noqa: E402
 from services.task_service.app.events import TaskEventType, build_event_envelope  # noqa: E402
+from services.task_service.app.notification_dispatcher import dispatch_pending_notifications  # noqa: E402
 from services.task_service.app.notification_handlers import handle_notification_event  # noqa: E402
 from services.task_service.app.outbox import create_outbox_event  # noqa: E402
 from services.task_service.app.worker_store import claim_event_for_processing, record_worker_error  # noqa: E402
@@ -99,7 +100,7 @@ def test_worker_event_claim_is_idempotent_per_consumer():
         db.close()
 
 
-def test_notification_worker_records_mock_email_delivery():
+def test_notification_worker_queues_delivery_for_cron():
     envelope = build_event_envelope(
         event_type=TaskEventType.CREATED,
         payload={
@@ -120,8 +121,35 @@ def test_notification_worker_records_mock_email_delivery():
         assert delivery.task_id == "task-notification-1"
         assert delivery.recipient_user_id == "user-notification-1"
         assert delivery.recipient_email == "user-user-notification-1@example.local"
+        assert delivery.status == "pending"
+        assert delivery.sent_at is None
+        assert "Notification queued" in note
+    finally:
+        db.close()
+
+
+def test_notification_cron_dispatches_pending_delivery():
+    envelope = build_event_envelope(
+        event_type=TaskEventType.CREATED,
+        payload={
+            "task_id": "task-notification-cron-1",
+            "assignee_id": "user-notification-cron-1",
+            "title": "Cron delivery",
+            "priority": "medium",
+        },
+    )
+    db = SessionLocal()
+    try:
+        handle_notification_event(db, envelope)
+        db.commit()
+
+        result = dispatch_pending_notifications(db=db)
+        db.commit()
+
+        delivery = db.query(NotificationDelivery).one()
+        assert result == {"selected": 1, "sent": 1, "failed": 0}
         assert delivery.status == "success"
-        assert "Notification email sent" in note
+        assert delivery.sent_at is not None
     finally:
         db.close()
 

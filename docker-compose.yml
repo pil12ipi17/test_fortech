@@ -123,6 +123,22 @@ services:
       task-service:
         condition: service_healthy
 
+  notification-cron:
+    build:
+      context: .
+      dockerfile: services/task_service/Dockerfile
+    command: ["python", "-m", "app.notification_cron"]
+    environment:
+      TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
+      TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
+      TASK_NOTIFICATION_DISPATCH_INTERVAL_SECONDS: ${TASK_NOTIFICATION_DISPATCH_INTERVAL_SECONDS:-60}
+      TASK_NOTIFICATION_DISPATCH_BATCH_SIZE: ${TASK_NOTIFICATION_DISPATCH_BATCH_SIZE:-50}
+    depends_on:
+      task-db:
+        condition: service_healthy
+      task-service:
+        condition: service_healthy
+
   audit-worker:
     build:
       context: .

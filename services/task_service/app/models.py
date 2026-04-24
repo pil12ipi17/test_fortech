@@ -173,12 +173,7 @@ class NotificationDelivery(Base):
     body: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    sent_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        nullable=False,
-        index=True,
-    )
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
 
 class WorkerError(Base):

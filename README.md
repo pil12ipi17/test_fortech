@@ -67,7 +67,7 @@ Next-level реализация тестового задания на `FastAPI 
 
 ## Архитектура
 
-Стенд состоит из одиннадцати контейнеров:
+The local stand consists of 12 containers:
 - `auth-db`
 - `task-db`
 - `auth-service`
@@ -75,7 +75,9 @@ Next-level реализация тестового задания на `FastAPI 
 - `rabbitmq`
 - `outbox-publisher`
 - `notification-worker`
+- `notification-cron`
 - `audit-worker`
+- `audit-report-cron`
 - `frontend`
 - `gateway`
 
@@ -195,7 +197,8 @@ RabbitMQ:
 
 Stage 5 extends the RabbitMQ workers into a minimal notification and audit-reporting contour:
 - `notification-worker` handles `task.created` and `task.status_changed` events.
-- It builds a mock email subject/body, calls `MockEmailSender`, and stores delivery results in `notification_deliveries`.
+- It builds a mock email subject/body and stores a `pending` delivery in `notification_deliveries`.
+- `notification-cron` is a separate cron-like container that periodically dispatches pending/failed deliveries through `MockEmailSender`.
 - `audit-worker` continues consuming task events and refreshes the CSV report after handled events.
 - `audit-report-cron` is a separate cron-like container that periodically regenerates `reports/audit_report.csv`.
 - Worker processing errors are stored in `worker_errors` and are included in the report as `errors_count`.
@@ -218,6 +221,12 @@ The report is generated at:
 
 ```text
 reports/audit_report.csv
+```
+
+Manual notification dispatch inside Docker:
+
+```bash
+docker compose run --rm notification-cron python -m app.notification_cron --once
 ```
 
 Manual report generation inside Docker:
