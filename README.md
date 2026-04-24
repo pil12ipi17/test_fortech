@@ -1,4 +1,4 @@
-﻿# Backend-система управления задачами
+# Backend-система управления задачами
 
 Next-level реализация тестового задания на `FastAPI + PostgreSQL + Docker Compose`.
 
@@ -7,7 +7,7 @@ Next-level реализация тестового задания на `FastAPI 
 - `task-service` — задачи, lifecycle статусов, RBAC, фильтрация, идемпотентность, audit task-действий
 - `frontend` — тонкий web-клиент для проверки API-сценариев
 - `gateway (nginx)` — единая точка входа для frontend и backend
-- `rabbitmq` — брокер сообщений и база для event-driven контура этапа 4
+- `rabbitmq` — брокер сообщений и база для event-driven контура этапов 4-5
 - `auth-db` и `task-db` — отдельные PostgreSQL базы данных
 
 ## Что реализовано
@@ -67,7 +67,7 @@ Next-level реализация тестового задания на `FastAPI 
 
 ## Архитектура
 
-Стенд состоит из десяти контейнеров:
+Стенд состоит из одиннадцати контейнеров:
 - `auth-db`
 - `task-db`
 - `auth-service`
@@ -189,6 +189,65 @@ RabbitMQ:
 
 Следующий слой ещё впереди:
 - более подробная наблюдаемость worker'ов
+
+
+## Notifications and audit reporting (stage 5)
+
+Stage 5 extends the RabbitMQ workers into a minimal notification and audit-reporting contour:
+- `notification-worker` handles `task.created` and `task.status_changed` events.
+- It builds a mock email subject/body, calls `MockEmailSender`, and stores delivery results in `notification_deliveries`.
+- `audit-worker` continues consuming task events and refreshes the CSV report after handled events.
+- `audit-report-cron` is a separate cron-like container that periodically regenerates `reports/audit_report.csv`.
+- Worker processing errors are stored in `worker_errors` and are included in the report as `errors_count`.
+- `processed_events` still provides consumer idempotency, so repeated RabbitMQ delivery does not duplicate final worker effects.
+
+The generated CSV report uses these columns:
+
+```text
+date,metric_name,metric_value,errors_count,notes
+```
+
+Main metrics:
+- `task.created`
+- `task.status_changed`
+- `task.deleted`
+- `auth.login`
+- `worker.errors`
+
+The report is generated at:
+
+```text
+reports/audit_report.csv
+```
+
+Manual report generation inside Docker:
+
+```bash
+docker compose run --rm audit-report-cron python -m app.audit_report_cron --once
+```
+
+Useful manual checks in `task_db`:
+
+```sql
+select event_id, event_type, recipient_email, subject, status, sent_at
+from notification_deliveries
+order by sent_at desc
+limit 10;
+```
+
+```sql
+select consumer_name, event_id, event_type, error_type, error_message, created_at
+from worker_errors
+order by created_at desc
+limit 10;
+```
+
+```sql
+select consumer_name, event_type, note, created_at
+from worker_event_logs
+order by created_at desc
+limit 10;
+```
 
 ## Миграции
 

@@ -1,0 +1,13 @@
+date,metric_name,metric_value,errors_count,notes
+2026-04-21,task.created,4,0,source=outbox_events
+2026-04-21,task.status_changed,2,0,source=outbox_events
+2026-04-21,task.deleted,1,0,source=outbox_events
+2026-04-21,auth.login,6,0,source=auth.audit_log
+2026-04-23,task.created,0,0,source=outbox_events
+2026-04-23,task.status_changed,0,0,source=outbox_events
+2026-04-23,task.deleted,0,0,source=outbox_events
+2026-04-23,auth.login,1,0,source=auth.audit_log
+2026-04-24,task.created,13,0,source=outbox_events
+2026-04-24,task.status_changed,5,0,source=outbox_events
+2026-04-24,task.deleted,0,0,source=outbox_events
+2026-04-24,auth.login,4,0,source=auth.audit_log

@@ -5,16 +5,18 @@ from collections.abc import Callable
 
 import aio_pika
 from aio_pika.abc import HeadersType
+from sqlalchemy.orm import Session
 
+from .config import get_settings
 from .db import SessionLocal
 from .rabbitmq import build_rabbitmq_config
-from .config import get_settings
-from .worker_store import add_worker_event_log, claim_event_for_processing
+from .worker_store import add_worker_event_log, claim_event_for_processing, record_worker_error
 
 logger = logging.getLogger("task-event-worker")
 
 TASK_EVENTS_BINDING_KEY = "task.*"
 RETRY_HEADER = "x-retry-count"
+EventHandler = Callable[[Session, dict], str]
 
 
 def _decode_event(message: aio_pika.IncomingMessage) -> dict:
@@ -37,6 +39,36 @@ def _retry_delay_seconds(*, retry_count: int) -> float:
     settings = get_settings()
     delay = settings.worker_retry_backoff_base_seconds * (2**retry_count)
     return min(delay, settings.worker_retry_backoff_max_seconds)
+
+
+def _save_worker_error(
+    *,
+    consumer_name: str,
+    event_id: str | None,
+    event_type: str | None,
+    correlation_id: str | None,
+    payload: dict,
+    error: Exception,
+    retry_count: int,
+) -> None:
+    db = SessionLocal()
+    try:
+        record_worker_error(
+            db=db,
+            consumer_name=consumer_name,
+            event_id=event_id,
+            event_type=event_type,
+            correlation_id=correlation_id,
+            payload=payload,
+            error=error,
+            retry_count=retry_count,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to persist worker error consumer=%s event_id=%s", consumer_name, event_id)
+    finally:
+        db.close()
 
 
 async def _create_queue(*, queue_name: str):
@@ -94,7 +126,7 @@ async def run_task_event_consumer(
     *,
     consumer_name: str,
     queue_name: str,
-    note_builder: Callable[[dict], str],
+    event_handler: EventHandler,
 ) -> None:
     settings = get_settings()
     connection, channel, exchange, queue = await _create_queue(queue_name=queue_name)
@@ -103,11 +135,15 @@ async def run_task_event_consumer(
     try:
         async with queue.iterator() as queue_iter:
             async for message in queue_iter:
+                envelope: dict = {}
+                event_id = str(message.message_id or "")
+                event_type = str(message.type or "")
+                correlation_id = str(message.correlation_id or event_id)
                 try:
                     envelope = _decode_event(message)
-                    event_id = str(envelope.get("event_id") or message.message_id or "")
-                    event_type = str(envelope.get("event_type") or message.type or "")
-                    correlation_id = str(envelope.get("correlation_id") or message.correlation_id or event_id)
+                    event_id = str(envelope.get("event_id") or event_id)
+                    event_type = str(envelope.get("event_type") or event_type)
+                    correlation_id = str(envelope.get("correlation_id") or correlation_id or event_id)
                     if not event_id or not event_type:
                         raise ValueError("Incoming task event is missing event_id or event_type")
 
@@ -129,7 +165,7 @@ async def run_task_event_consumer(
                             await message.ack()
                             continue
 
-                        note = note_builder(envelope)
+                        note = event_handler(db, envelope)
                         add_worker_event_log(
                             db=db,
                             consumer_name=consumer_name,
@@ -157,8 +193,17 @@ async def run_task_event_consumer(
                         raise
                     finally:
                         db.close()
-                except Exception:
+                except Exception as exc:
                     retry_count = _retry_count(message)
+                    _save_worker_error(
+                        consumer_name=consumer_name,
+                        event_id=event_id,
+                        event_type=event_type,
+                        correlation_id=correlation_id,
+                        payload=envelope,
+                        error=exc,
+                        retry_count=retry_count,
+                    )
                     if retry_count < settings.worker_max_retry_attempts:
                         retry_delay_seconds = _retry_delay_seconds(retry_count=retry_count)
                         await asyncio.sleep(retry_delay_seconds)

@@ -13,13 +13,19 @@ from services.task_service.app.main import app  # noqa: E402
 from services.task_service.app.models import (  # noqa: E402
     AuditLog,
     IdempotencyKey,
+    NotificationDelivery,
     OutboxEvent,
     ProcessedEvent,
     Task,
     TaskStatusHistory,
+    WorkerError,
     WorkerEventLog,
 )
-from services.task_service.app.worker_store import claim_event_for_processing  # noqa: E402
+from services.task_service.app.audit_report import generate_audit_report  # noqa: E402
+from services.task_service.app.events import TaskEventType, build_event_envelope  # noqa: E402
+from services.task_service.app.notification_handlers import handle_notification_event  # noqa: E402
+from services.task_service.app.outbox import create_outbox_event  # noqa: E402
+from services.task_service.app.worker_store import claim_event_for_processing, record_worker_error  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -28,6 +34,8 @@ def clear_task_tables():
     db = SessionLocal()
     try:
         db.query(AuditLog).delete()
+        db.query(NotificationDelivery).delete()
+        db.query(WorkerError).delete()
         db.query(WorkerEventLog).delete()
         db.query(ProcessedEvent).delete()
         db.query(OutboxEvent).delete()
@@ -88,6 +96,65 @@ def test_worker_event_claim_is_idempotent_per_consumer():
         assert other_consumer_claim is True
         assert db.query(ProcessedEvent).count() == 2
     finally:
+        db.close()
+
+
+def test_notification_worker_records_mock_email_delivery():
+    envelope = build_event_envelope(
+        event_type=TaskEventType.CREATED,
+        payload={
+            "task_id": "task-notification-1",
+            "assignee_id": "user-notification-1",
+            "title": "Notify assignee",
+            "priority": "high",
+        },
+    )
+    db = SessionLocal()
+    try:
+        note = handle_notification_event(db, envelope)
+        db.commit()
+
+        delivery = db.query(NotificationDelivery).one()
+        assert delivery.event_id == envelope["event_id"]
+        assert delivery.event_type == "task.created"
+        assert delivery.task_id == "task-notification-1"
+        assert delivery.recipient_user_id == "user-notification-1"
+        assert delivery.recipient_email == "user-user-notification-1@example.local"
+        assert delivery.status == "success"
+        assert "Notification email sent" in note
+    finally:
+        db.close()
+
+
+def test_audit_report_csv_contains_task_metrics_and_errors():
+    envelope = build_event_envelope(
+        event_type=TaskEventType.CREATED,
+        payload={"task_id": "task-report-1"},
+    )
+    db = SessionLocal()
+    try:
+        db.add(create_outbox_event(envelope=envelope, aggregate_type="task", aggregate_id="task-report-1"))
+        record_worker_error(
+            db=db,
+            consumer_name="audit-worker",
+            event_id=envelope["event_id"],
+            event_type=envelope["event_type"],
+            correlation_id=envelope["correlation_id"],
+            payload=envelope,
+            error=RuntimeError("report test error"),
+            retry_count=1,
+        )
+        db.commit()
+
+        output = Path.cwd() / "test_audit_report.csv"
+        generated = generate_audit_report(db=db, output_path=str(output))
+        content = generated.read_text(encoding="utf-8")
+        assert "date,metric_name,metric_value,errors_count,notes" in content
+        assert "task.created,1,1,source=outbox_events" in content
+        assert "worker.errors,1,1,source=worker_errors" in content
+    finally:
+        if "output" in locals() and output.exists():
+            output.unlink()
         db.close()
 
 
