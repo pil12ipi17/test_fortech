@@ -37,9 +37,9 @@ def claim_event_for_processing(
             postgresql_insert(ProcessedEvent)
             .values(**values)
             .on_conflict_do_nothing(index_elements=["event_id", "consumer_name"])
+            .returning(ProcessedEvent.id)
         )
-        result = db.execute(statement)
-        return result.rowcount == 1
+        return db.scalar(statement) is not None
 
     if dialect_name == "sqlite":
         statement = (
