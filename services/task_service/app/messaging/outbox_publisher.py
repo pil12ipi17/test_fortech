@@ -3,9 +3,9 @@ import logging
 
 import aio_pika
 
-from .config import get_settings
-from .db import SessionLocal
-from .outbox import load_pending_outbox_events, mark_outbox_event_published, mark_outbox_event_retry
+from ..core.config import get_settings
+from ..core.db import SessionLocal
+from ..tasks.outbox import load_pending_outbox_events, mark_outbox_event_published, mark_outbox_event_retry
 from .rabbitmq import build_rabbitmq_config
 
 logging.basicConfig(

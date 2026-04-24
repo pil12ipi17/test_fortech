@@ -8,9 +8,9 @@ from fastapi.testclient import TestClient
 os.environ["TASK_DATABASE_URL"] = f"sqlite+pysqlite:///{Path.cwd() / 'test_task_service.db'}"
 os.environ["TASK_JWT_SECRET"] = "test-secret"
 
-from services.task_service.app.db import SessionLocal, run_migrations  # noqa: E402
+from services.task_service.app.core.db import SessionLocal, run_migrations  # noqa: E402
 from services.task_service.app.main import app  # noqa: E402
-from services.task_service.app.models import (  # noqa: E402
+from services.task_service.app.tasks.models import (  # noqa: E402
     AuditLog,
     IdempotencyKey,
     NotificationDelivery,
@@ -21,12 +21,12 @@ from services.task_service.app.models import (  # noqa: E402
     WorkerError,
     WorkerEventLog,
 )
-from services.task_service.app.audit_report import generate_audit_report  # noqa: E402
-from services.task_service.app.events import TaskEventType, build_event_envelope  # noqa: E402
-from services.task_service.app.notification_dispatcher import dispatch_pending_notifications  # noqa: E402
-from services.task_service.app.notification_handlers import handle_notification_event  # noqa: E402
-from services.task_service.app.outbox import create_outbox_event  # noqa: E402
-from services.task_service.app.worker_store import claim_event_for_processing, record_worker_error  # noqa: E402
+from services.task_service.app.audit.report import generate_audit_report  # noqa: E402
+from services.task_service.app.tasks.events import TaskEventType, build_event_envelope  # noqa: E402
+from services.task_service.app.notifications.dispatcher import dispatch_pending_notifications  # noqa: E402
+from services.task_service.app.notifications.handlers import handle_notification_event  # noqa: E402
+from services.task_service.app.tasks.outbox import create_outbox_event  # noqa: E402
+from services.task_service.app.messaging.worker_store import claim_event_for_processing, record_worker_error  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

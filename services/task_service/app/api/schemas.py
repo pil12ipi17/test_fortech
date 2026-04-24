@@ -3,7 +3,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from .models import TaskPriority, TaskStatus
+from ..tasks.models import TaskPriority, TaskStatus
 
 
 class TaskSortBy(StrEnum):

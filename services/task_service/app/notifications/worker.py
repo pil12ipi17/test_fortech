@@ -1,8 +1,8 @@
 import asyncio
 import logging
 
-from .notification_handlers import handle_notification_event
-from .worker_runtime import run_task_event_consumer
+from .handlers import handle_notification_event
+from ..messaging.worker_runtime import run_task_event_consumer
 
 logging.basicConfig(
     level=logging.INFO,

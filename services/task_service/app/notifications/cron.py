@@ -2,9 +2,9 @@ import argparse
 import asyncio
 import logging
 
-from .config import get_settings
-from .db import SessionLocal
-from .notification_dispatcher import dispatch_pending_notifications
+from ..core.config import get_settings
+from ..core.db import SessionLocal
+from .dispatcher import dispatch_pending_notifications
 
 logging.basicConfig(
     level=logging.INFO,

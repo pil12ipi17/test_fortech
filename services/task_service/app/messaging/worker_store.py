@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from .models import ProcessedEvent, WorkerError, WorkerEventLog
+from ..tasks.models import ProcessedEvent, WorkerError, WorkerEventLog
 
 
 def serialize_worker_payload(payload: dict) -> str:

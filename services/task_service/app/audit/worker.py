@@ -3,9 +3,9 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from .audit_report import generate_audit_report
-from .config import get_settings
-from .worker_runtime import run_task_event_consumer
+from .report import generate_audit_report
+from ..core.config import get_settings
+from ..messaging.worker_runtime import run_task_event_consumer
 
 logging.basicConfig(
     level=logging.INFO,

@@ -7,8 +7,8 @@ import aio_pika
 from aio_pika.abc import HeadersType
 from sqlalchemy.orm import Session
 
-from .config import get_settings
-from .db import SessionLocal
+from ..core.config import get_settings
+from ..core.db import SessionLocal
 from .rabbitmq import build_rabbitmq_config
 from .worker_store import add_worker_event_log, claim_event_for_processing, record_worker_error
 

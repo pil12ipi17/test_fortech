@@ -5,7 +5,7 @@ from uuid import uuid4
 from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .db import Base
+from ..core.db import Base
 
 
 class TaskStatus(StrEnum):

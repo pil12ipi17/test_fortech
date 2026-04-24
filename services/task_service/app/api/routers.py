@@ -5,12 +5,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, 
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from .audit import add_audit_log
-from .events import TaskEventType, build_event_envelope
-from .idempotency import compute_request_hash, create_idempotency_record, maybe_replay_idempotent_response
-from .db import get_db
-from .models import Task, TaskPriority, TaskStatus, TaskStatusHistory
-from .outbox import create_outbox_event
+from ..audit.request_audit import add_audit_log
+from ..tasks.events import TaskEventType, build_event_envelope
+from ..core.idempotency import compute_request_hash, create_idempotency_record, maybe_replay_idempotent_response
+from ..core.db import get_db
+from ..tasks.models import Task, TaskPriority, TaskStatus, TaskStatusHistory
+from ..tasks.outbox import create_outbox_event
 from .schemas import (
     CurrentUser,
     SortOrder,
@@ -22,8 +22,8 @@ from .schemas import (
     TaskStatusUpdate,
     TaskUpdate,
 )
-from .rbac import apply_visibility_scope, can_delete_task, can_manage_task, get_task_if_visible
-from .security import get_current_user
+from ..core.rbac import apply_visibility_scope, can_delete_task, can_manage_task, get_task_if_visible
+from ..core.security import get_current_user
 
 router = APIRouter(tags=["tasks"])
 

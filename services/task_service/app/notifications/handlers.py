@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 
-from .notification_sender import EmailMessage
-from .notification_store import add_notification_delivery, build_mock_recipient_email
+from .sender import EmailMessage
+from .store import add_notification_delivery, build_mock_recipient_email
 
 SUPPORTED_EVENTS = {"task.created", "task.status_changed"}
 

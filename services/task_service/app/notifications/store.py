@@ -3,8 +3,8 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from .models import NotificationDelivery
-from .notification_sender import EmailMessage, EmailSendResult
+from ..tasks.models import NotificationDelivery
+from .sender import EmailMessage, EmailSendResult
 
 
 DELIVERY_PENDING = "pending"

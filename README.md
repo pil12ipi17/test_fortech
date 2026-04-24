@@ -226,13 +226,13 @@ reports/audit_report.csv
 Manual notification dispatch inside Docker:
 
 ```bash
-docker compose run --rm notification-cron python -m app.notification_cron --once
+docker compose run --rm notification-cron python -m app.notifications.cron --once
 ```
 
 Manual report generation inside Docker:
 
 ```bash
-docker compose run --rm audit-report-cron python -m app.audit_report_cron --once
+docker compose run --rm audit-report-cron python -m app.audit.report_cron --once
 ```
 
 Useful manual checks in `task_db`:

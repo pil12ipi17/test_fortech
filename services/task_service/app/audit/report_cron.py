@@ -2,9 +2,9 @@ import argparse
 import asyncio
 import logging
 
-from .audit_report import generate_audit_report
-from .config import get_settings
-from .db import SessionLocal
+from .report import generate_audit_report
+from ..core.config import get_settings
+from ..core.db import SessionLocal
 
 logging.basicConfig(
     level=logging.INFO,

@@ -85,7 +85,7 @@ services:
     build:
       context: .
       dockerfile: services/task_service/Dockerfile
-    command: ["python", "-m", "app.outbox_publisher"]
+    command: ["python", "-m", "app.messaging.outbox_publisher"]
     environment:
       TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
@@ -106,7 +106,7 @@ services:
     build:
       context: .
       dockerfile: services/task_service/Dockerfile
-    command: ["python", "-m", "app.notification_worker"]
+    command: ["python", "-m", "app.notifications.worker"]
     environment:
       TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
@@ -127,7 +127,7 @@ services:
     build:
       context: .
       dockerfile: services/task_service/Dockerfile
-    command: ["python", "-m", "app.notification_cron"]
+    command: ["python", "-m", "app.notifications.cron"]
     environment:
       TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
@@ -143,7 +143,7 @@ services:
     build:
       context: .
       dockerfile: services/task_service/Dockerfile
-    command: ["python", "-m", "app.audit_worker"]
+    command: ["python", "-m", "app.audit.worker"]
     environment:
       TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
@@ -171,7 +171,7 @@ services:
     build:
       context: .
       dockerfile: services/task_service/Dockerfile
-    command: ["python", "-m", "app.audit_report_cron"]
+    command: ["python", "-m", "app.audit.report_cron"]
     environment:
       TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
       TASK_AUTH_DATABASE_URL: ${TASK_AUTH_DATABASE_URL:-postgresql+psycopg://auth_user:auth_password@auth-db:5432/auth_db}
