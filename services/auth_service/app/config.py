@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 7
     token_issuer: str = "auth-service"
+    redis_url: str | None = None
+    redis_socket_timeout_seconds: float = 0.5
+    login_rate_limit_requests: int = 5
+    login_rate_limit_window_seconds: int = 60
 
     model_config = SettingsConfigDict(env_prefix="AUTH_", case_sensitive=False)
 

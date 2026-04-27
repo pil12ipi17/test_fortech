@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     audit_report_interval_seconds: float = 3600.0
     notification_dispatch_interval_seconds: float = 60.0
     notification_dispatch_batch_size: int = 50
+    redis_url: str | None = None
+    redis_socket_timeout_seconds: float = 0.5
+    task_cache_ttl_seconds: int = 90
+    task_write_rate_limit_requests: int = 30
+    task_write_rate_limit_window_seconds: int = 60
 
     model_config = SettingsConfigDict(env_prefix="TASK_", case_sensitive=False)
 
