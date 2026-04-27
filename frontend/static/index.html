@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="ru">
   <head>
     <meta charset="UTF-8" />
@@ -366,6 +366,14 @@
 
               <section class="panel">
                 <div class="panel-head">
+                  <h2>Audit CSV отчет</h2>
+                  <p>Ручной запуск генерации отчета через <code>POST /audit/report</code>.</p>
+                </div>
+                <button id="generateAuditReportButton" type="button">Сгенерировать CSV отчет</button>
+                <p id="auditReportResult" class="inline-note hidden"></p>
+              </section>
+              <section class="panel">
+                <div class="panel-head">
                   <h2>Удаление участника из команды</h2>
                   <p>Админский сценарий через <code>DELETE /teams/{team_id}/members/{user_id}</code>.</p>
                 </div>
@@ -429,6 +437,11 @@
             <dd data-field="deadline"></dd>
           </div>
         </dl>
+
+        <div class="task-actions">
+          <button class="cache-check-button" type="button">Проверить кэш по ID</button>
+          <span class="meta-secondary">Вызывает <code>GET /tasks/{id}</code> для Redis cache miss/hit.</span>
+        </div>
 
         <form class="status-form">
           <label>
