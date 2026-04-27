@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from .config import Settings
+from ..core.config import Settings
 
 
 @dataclass(frozen=True)

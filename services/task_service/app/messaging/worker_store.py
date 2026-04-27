@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from .models import ProcessedEvent, WorkerEventLog
+from ..tasks.models import ProcessedEvent, WorkerError, WorkerEventLog
 
 
 def serialize_worker_payload(payload: dict) -> str:
@@ -77,5 +77,30 @@ def add_worker_event_log(
             correlation_id=correlation_id,
             payload_json=serialize_worker_payload(payload),
             note=note,
+        )
+    )
+
+
+def record_worker_error(
+    *,
+    db: Session,
+    consumer_name: str,
+    event_id: str | None,
+    event_type: str | None,
+    correlation_id: str | None,
+    payload: dict,
+    error: Exception,
+    retry_count: int,
+) -> None:
+    db.add(
+        WorkerError(
+            consumer_name=consumer_name,
+            event_id=event_id or None,
+            event_type=event_type or None,
+            correlation_id=correlation_id or None,
+            error_type=type(error).__name__,
+            error_message=str(error),
+            retry_count=retry_count,
+            payload_json=serialize_worker_payload(payload),
         )
     )

@@ -6,3 +6,4 @@ psycopg[binary]==3.2.13
 pydantic-settings==2.10.1
 PyJWT==2.10.1
 aio-pika==9.5.5
+APScheduler==3.10.4

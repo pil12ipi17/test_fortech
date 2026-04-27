@@ -85,7 +85,7 @@ services:
     build:
       context: .
       dockerfile: services/task_service/Dockerfile
-    command: ["python", "-m", "app.outbox_publisher"]
+    command: ["python", "-m", "app.messaging.outbox_publisher"]
     environment:
       TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
@@ -106,7 +106,7 @@ services:
     build:
       context: .
       dockerfile: services/task_service/Dockerfile
-    command: ["python", "-m", "app.notification_worker"]
+    command: ["python", "-m", "app.notifications.worker"]
     environment:
       TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
@@ -123,11 +123,27 @@ services:
       task-service:
         condition: service_healthy
 
+  notification-cron:
+    build:
+      context: .
+      dockerfile: services/task_service/Dockerfile
+    command: ["python", "-m", "app.notifications.cron"]
+    environment:
+      TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
+      TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
+      TASK_NOTIFICATION_DISPATCH_INTERVAL_SECONDS: ${TASK_NOTIFICATION_DISPATCH_INTERVAL_SECONDS:-60}
+      TASK_NOTIFICATION_DISPATCH_BATCH_SIZE: ${TASK_NOTIFICATION_DISPATCH_BATCH_SIZE:-50}
+    depends_on:
+      task-db:
+        condition: service_healthy
+      task-service:
+        condition: service_healthy
+
   audit-worker:
     build:
       context: .
       dockerfile: services/task_service/Dockerfile
-    command: ["python", "-m", "app.audit_worker"]
+    command: ["python", "-m", "app.audit.worker"]
     environment:
       TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
@@ -136,13 +152,41 @@ services:
       TASK_WORKER_MAX_RETRY_ATTEMPTS: ${TASK_WORKER_MAX_RETRY_ATTEMPTS:-3}
       TASK_WORKER_RETRY_BACKOFF_BASE_SECONDS: ${TASK_WORKER_RETRY_BACKOFF_BASE_SECONDS:-1}
       TASK_WORKER_RETRY_BACKOFF_MAX_SECONDS: ${TASK_WORKER_RETRY_BACKOFF_MAX_SECONDS:-10}
+      TASK_AUTH_DATABASE_URL: ${TASK_AUTH_DATABASE_URL:-postgresql+psycopg://auth_user:auth_password@auth-db:5432/auth_db}
+      TASK_AUDIT_REPORT_PATH: ${TASK_AUDIT_REPORT_PATH:-/app/reports/audit_report.csv}
+      TASK_AUDIT_REPORT_INTERVAL_SECONDS: ${TASK_AUDIT_REPORT_INTERVAL_SECONDS:-3600}
     depends_on:
       task-db:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      auth-db:
+        condition: service_healthy
       task-service:
         condition: service_healthy
+    volumes:
+      - ./reports:/app/reports
+
+  audit-report-cron:
+    build:
+      context: .
+      dockerfile: services/task_service/Dockerfile
+    command: ["python", "-m", "app.audit.report_cron"]
+    environment:
+      TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
+      TASK_AUTH_DATABASE_URL: ${TASK_AUTH_DATABASE_URL:-postgresql+psycopg://auth_user:auth_password@auth-db:5432/auth_db}
+      TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
+      TASK_AUDIT_REPORT_PATH: ${TASK_AUDIT_REPORT_PATH:-/app/reports/audit_report.csv}
+      TASK_AUDIT_REPORT_INTERVAL_SECONDS: ${TASK_AUDIT_REPORT_INTERVAL_SECONDS:-3600}
+    depends_on:
+      auth-db:
+        condition: service_healthy
+      task-db:
+        condition: service_healthy
+      task-service:
+        condition: service_healthy
+    volumes:
+      - ./reports:/app/reports
 
   frontend:
     build:

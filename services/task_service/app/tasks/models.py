@@ -5,7 +5,7 @@ from uuid import uuid4
 from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .db import Base
+from ..core.db import Base
 
 
 class TaskStatus(StrEnum):
@@ -151,6 +151,43 @@ class WorkerEventLog(Base):
     correlation_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     payload_json: Mapped[str] = mapped_column(Text, nullable=False)
     note: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+
+
+class NotificationDelivery(Base):
+    __tablename__ = "notification_deliveries"
+    __table_args__ = (UniqueConstraint("event_id", name="uq_notification_deliveries_event"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    event_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    task_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    recipient_user_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    recipient_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+
+
+class WorkerError(Base):
+    __tablename__ = "worker_errors"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    consumer_name: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    event_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    event_type: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    error_type: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    error_message: Mapped[str] = mapped_column(Text, nullable=False)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

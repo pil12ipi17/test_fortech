@@ -18,8 +18,15 @@ engine = create_engine(settings.database_url, future=True, connect_args=connect_
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
 
+def get_service_root() -> Path:
+    for candidate in Path(__file__).resolve().parents:
+        if (candidate / "alembic.ini").exists():
+            return candidate
+    raise RuntimeError("Could not locate task-service alembic.ini")
+
+
 def get_alembic_config() -> Config:
-    service_root = Path(__file__).resolve().parents[1]
+    service_root = get_service_root()
     config = Config(str(service_root / "alembic.ini"))
     config.set_main_option("script_location", str(service_root / "alembic"))
     config.set_main_option("sqlalchemy.url", settings.database_url)

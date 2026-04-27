@@ -18,13 +18,13 @@ for candidate in SEARCH_ROOTS:
         sys.path.insert(0, candidate_str)
 
 try:
-    from services.task_service.app.config import get_settings
-    from services.task_service.app.db import Base
-    from services.task_service.app import models  # noqa: F401
+    from services.task_service.app.core.config import get_settings
+    from services.task_service.app.core.db import Base
+    from services.task_service.app.tasks import models  # noqa: F401
 except ModuleNotFoundError:
-    from app.config import get_settings
-    from app.db import Base
-    from app import models  # noqa: F401
+    from app.core.config import get_settings
+    from app.core.db import Base
+    from app.tasks import models  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", get_settings().database_url)

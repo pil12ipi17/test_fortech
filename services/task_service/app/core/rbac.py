@@ -4,8 +4,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from .models import Task
-from .schemas import CurrentUser
+from ..tasks.models import Task
+from ..api.schemas import CurrentUser
 
 ADMIN_ROLE = "admin"
 TEAMLEAD_ROLE = "teamlead"
