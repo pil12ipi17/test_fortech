@@ -8,9 +8,25 @@ from fastapi.testclient import TestClient
 os.environ["TASK_DATABASE_URL"] = f"sqlite+pysqlite:///{Path.cwd() / 'test_task_service.db'}"
 os.environ["TASK_JWT_SECRET"] = "test-secret"
 
-from services.task_service.app.db import SessionLocal, run_migrations  # noqa: E402
+from services.task_service.app.core.db import SessionLocal, run_migrations  # noqa: E402
 from services.task_service.app.main import app  # noqa: E402
-from services.task_service.app.models import AuditLog, IdempotencyKey, Task, TaskStatusHistory  # noqa: E402
+from services.task_service.app.tasks.models import (  # noqa: E402
+    AuditLog,
+    IdempotencyKey,
+    NotificationDelivery,
+    OutboxEvent,
+    ProcessedEvent,
+    Task,
+    TaskStatusHistory,
+    WorkerError,
+    WorkerEventLog,
+)
+from services.task_service.app.audit.report import generate_audit_report  # noqa: E402
+from services.task_service.app.tasks.events import TaskEventType, build_event_envelope  # noqa: E402
+from services.task_service.app.notifications.dispatcher import dispatch_pending_notifications  # noqa: E402
+from services.task_service.app.notifications.handlers import handle_notification_event  # noqa: E402
+from services.task_service.app.tasks.outbox import create_outbox_event  # noqa: E402
+from services.task_service.app.messaging.worker_store import claim_event_for_processing, record_worker_error  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -19,6 +35,11 @@ def clear_task_tables():
     db = SessionLocal()
     try:
         db.query(AuditLog).delete()
+        db.query(NotificationDelivery).delete()
+        db.query(WorkerError).delete()
+        db.query(WorkerEventLog).delete()
+        db.query(ProcessedEvent).delete()
+        db.query(OutboxEvent).delete()
         db.query(IdempotencyKey).delete()
         db.query(TaskStatusHistory).delete()
         db.query(Task).delete()
@@ -43,6 +64,126 @@ def make_token(
         "team_ids": team_ids or [],
     }
     return jwt.encode(payload, "test-secret", algorithm="HS256")
+
+
+def test_worker_event_claim_is_idempotent_per_consumer():
+    db = SessionLocal()
+    try:
+        first_claim = claim_event_for_processing(
+            db=db,
+            event_id="event-1",
+            consumer_name="notification-worker",
+            event_type="task.created",
+            correlation_id="correlation-1",
+        )
+        second_claim = claim_event_for_processing(
+            db=db,
+            event_id="event-1",
+            consumer_name="notification-worker",
+            event_type="task.created",
+            correlation_id="correlation-1",
+        )
+        other_consumer_claim = claim_event_for_processing(
+            db=db,
+            event_id="event-1",
+            consumer_name="audit-worker",
+            event_type="task.created",
+            correlation_id="correlation-1",
+        )
+        db.commit()
+
+        assert first_claim is True
+        assert second_claim is False
+        assert other_consumer_claim is True
+        assert db.query(ProcessedEvent).count() == 2
+    finally:
+        db.close()
+
+
+def test_notification_worker_queues_delivery_for_cron():
+    envelope = build_event_envelope(
+        event_type=TaskEventType.CREATED,
+        payload={
+            "task_id": "task-notification-1",
+            "assignee_id": "user-notification-1",
+            "title": "Notify assignee",
+            "priority": "high",
+        },
+    )
+    db = SessionLocal()
+    try:
+        note = handle_notification_event(db, envelope)
+        db.commit()
+
+        delivery = db.query(NotificationDelivery).one()
+        assert delivery.event_id == envelope["event_id"]
+        assert delivery.event_type == "task.created"
+        assert delivery.task_id == "task-notification-1"
+        assert delivery.recipient_user_id == "user-notification-1"
+        assert delivery.recipient_email == "user-user-notification-1@example.local"
+        assert delivery.status == "pending"
+        assert delivery.sent_at is None
+        assert "Notification queued" in note
+    finally:
+        db.close()
+
+
+def test_notification_cron_dispatches_pending_delivery():
+    envelope = build_event_envelope(
+        event_type=TaskEventType.CREATED,
+        payload={
+            "task_id": "task-notification-cron-1",
+            "assignee_id": "user-notification-cron-1",
+            "title": "Cron delivery",
+            "priority": "medium",
+        },
+    )
+    db = SessionLocal()
+    try:
+        handle_notification_event(db, envelope)
+        db.commit()
+
+        result = dispatch_pending_notifications(db=db)
+        db.commit()
+
+        delivery = db.query(NotificationDelivery).one()
+        assert result == {"selected": 1, "sent": 1, "failed": 0}
+        assert delivery.status == "success"
+        assert delivery.sent_at is not None
+    finally:
+        db.close()
+
+
+def test_audit_report_csv_contains_task_metrics_and_errors():
+    envelope = build_event_envelope(
+        event_type=TaskEventType.CREATED,
+        payload={"task_id": "task-report-1"},
+    )
+    db = SessionLocal()
+    try:
+        db.add(create_outbox_event(envelope=envelope, aggregate_type="task", aggregate_id="task-report-1"))
+        record_worker_error(
+            db=db,
+            consumer_name="audit-worker",
+            event_id=envelope["event_id"],
+            event_type=envelope["event_type"],
+            correlation_id=envelope["correlation_id"],
+            payload=envelope,
+            error=RuntimeError("report test error"),
+            retry_count=1,
+        )
+        db.commit()
+
+        output = Path.cwd() / "test_audit_report.csv"
+        generated = generate_audit_report(db=db, output_path=str(output))
+        content = generated.read_text(encoding="utf-8")
+        assert "date,metric_name,metric_value,errors_count,notes" in content
+        assert "task.created,1,1,source=outbox_events" in content
+        assert "worker.errors,1,1,source=worker_errors" in content
+    finally:
+        if "output" in locals() and output.exists():
+            output.unlink()
+        db.close()
 
 
 def test_task_rbac_audit_readiness_and_error_format():
@@ -143,6 +284,12 @@ def test_task_rbac_audit_readiness_and_error_format():
         assert action_list.count("task.updated") == 1
         assert action_list.count("task.status_changed") == 1
         assert action_list.count("task.deleted") == 1
+
+        outbox_event_types = db.query(OutboxEvent.event_type).order_by(OutboxEvent.created_at.asc()).all()
+        outbox_type_list = [event_type for (event_type,) in outbox_event_types]
+        assert outbox_type_list.count("task.created") == 1
+        assert outbox_type_list.count("task.status_changed") == 1
+        assert outbox_type_list.count("task.deleted") == 1
     finally:
         db.close()
 
@@ -332,7 +479,11 @@ def test_idempotency_replays_create_and_status_change_without_duplicate_audit():
     try:
         create_count = db.query(AuditLog).filter(AuditLog.action == "task.created").count()
         status_count = db.query(AuditLog).filter(AuditLog.action == "task.status_changed").count()
+        create_outbox_count = db.query(OutboxEvent).filter(OutboxEvent.event_type == "task.created").count()
+        status_outbox_count = db.query(OutboxEvent).filter(OutboxEvent.event_type == "task.status_changed").count()
         assert create_count == 1
         assert status_count == 1
+        assert create_outbox_count == 1
+        assert status_outbox_count == 1
     finally:
         db.close()

@@ -1,0 +1,477 @@
+﻿<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fortech Task Console</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="errorBanner" class="toast hidden"></div>
+
+    <section id="authView" class="auth-view">
+      <div class="auth-layout">
+        <div class="auth-copy">
+          <span class="eyebrow">Fortech Stage 3</span>
+          <h1>Task Console</h1>
+          <p class="lead">
+            Небольшой интерфейс для проверки реальных backend-сценариев: вход, регистрация,
+            фильтрация задач, создание задач, смена статуса и понятное отображение ошибок API.
+          </p>
+
+          <div class="feature-list">
+            <article>
+              <h2>Один адрес для всего</h2>
+              <p>И UI, и API доступны через gateway на <strong>localhost</strong>.</p>
+            </article>
+            <article>
+              <h2>Реальные backend-правила</h2>
+              <p>RBAC, lifecycle, audit и idempotency по-прежнему живут на backend, а фронт только вызывает контракты.</p>
+            </article>
+            <article>
+              <h2>Удобнее, чем Swagger</h2>
+              <p>После входа можно посмотреть контекст пользователя, найти нужные ID и быстро прогнать рабочий сценарий.</p>
+            </article>
+          </div>
+        </div>
+
+        <div class="auth-card">
+          <div class="auth-switch">
+            <button id="showLoginButton" class="switch-btn active" type="button">Вход</button>
+            <button id="showRegisterButton" class="switch-btn" type="button">Регистрация</button>
+          </div>
+
+          <form id="loginForm" class="stack-form">
+            <h2>Войти в систему</h2>
+            <p>Используется маршрут <code>POST /api/v1/auth/login</code>.</p>
+            <label>
+              <span>Email</span>
+              <input type="email" name="email" placeholder="user@example.com" required />
+            </label>
+            <label>
+              <span>Пароль</span>
+              <input type="password" name="password" placeholder="Минимум 8 символов" required />
+            </label>
+            <button type="submit">Войти</button>
+          </form>
+
+          <form id="registerForm" class="stack-form hidden">
+            <h2>Создать пользователя</h2>
+            <p>Используется маршрут <code>POST /api/v1/auth/register</code> с автоматическим открытием сессии.</p>
+            <label>
+              <span>Email</span>
+              <input type="email" name="email" placeholder="new@example.com" required />
+            </label>
+            <label>
+              <span>Пароль</span>
+              <input type="password" name="password" placeholder="Минимум 8 символов" required />
+            </label>
+            <button type="submit">Зарегистрироваться</button>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <section id="appView" class="app-view hidden">
+      <aside class="app-sidebar">
+        <div>
+          <span class="eyebrow">Task Console</span>
+          <h2>Рабочая панель</h2>
+          <p class="muted">Тонкий интерфейс для демонстрации интеграции и реальных next-level API-контрактов.</p>
+        </div>
+
+        <nav class="side-nav">
+          <button id="openTasksViewButton" class="nav-link active" type="button">Задачи</button>
+          <button id="openCreateViewButton" class="nav-link" type="button">Создать</button>
+          <button id="openReferenceViewButton" class="nav-link" type="button">Справочник</button>
+          <button id="openManageViewButton" class="nav-link hidden" type="button">Управление</button>
+        </nav>
+
+        <div class="session-card">
+          <h3>Текущий пользователь</h3>
+          <dl class="session-meta">
+            <div>
+              <dt>Email</dt>
+              <dd id="sessionEmail">-</dd>
+            </div>
+            <div>
+              <dt>Роли</dt>
+              <dd id="sessionRoles">-</dd>
+            </div>
+            <div>
+              <dt>Команды</dt>
+              <dd id="sessionTeams">-</dd>
+            </div>
+          </dl>
+
+          <div class="session-actions">
+            <button id="refreshButton" type="button">Обновить токены</button>
+            <button id="logoutButton" class="ghost" type="button">Выйти</button>
+          </div>
+        </div>
+
+        <div class="help-card">
+          <h3>Быстрый маршрут</h3>
+          <ol>
+            <li>Войди или зарегистрируйся.</li>
+            <li>Открой «Справочник», если нужны ID пользователей и команд.</li>
+            <li>Создай задачу или управляй командами, потом вернись в список и проверь lifecycle.</li>
+          </ol>
+        </div>
+      </aside>
+
+      <main class="app-main">
+        <header class="app-header split">
+          <div>
+            <span class="eyebrow">Gateway mode</span>
+            <h1 id="screenTitle">Список задач</h1>
+            <p id="screenSubtitle" class="muted">Все запросы идут через <code>/api/v1</code> на одном домене.</p>
+          </div>
+          <div id="connectionBadge" class="pill">Ожидает авторизации</div>
+        </header>
+
+        <div class="screen-stack">
+          <section id="tasksScreen" class="panel">
+            <div class="panel-head split">
+              <div>
+                <h2>Фильтры и список задач</h2>
+                <p>Контракт соответствует <code>GET /tasks</code>.</p>
+              </div>
+              <button id="reloadTasksButton" type="button">Обновить</button>
+            </div>
+
+            <form id="filtersForm" class="stack-form compact">
+              <div class="filters-grid">
+                <label>
+                  <span>Статус</span>
+                  <select name="status">
+                    <option value="">Все</option>
+                    <option value="todo">todo</option>
+                    <option value="in_progress">in_progress</option>
+                    <option value="review">review</option>
+                    <option value="done">done</option>
+                    <option value="cancelled">cancelled</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Приоритет</span>
+                  <select name="priority">
+                    <option value="">Все</option>
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Исполнитель</span>
+                  <input name="assignee_id" placeholder="user-id или email" list="userIdSuggestions" />
+                </label>
+                <label>
+                  <span>Команда</span>
+                  <input name="team_id" placeholder="team-id или название" list="teamIdSuggestions" />
+                </label>
+                <label>
+                  <span>Сортировка</span>
+                  <select name="sort_by">
+                    <option value="created_at">created_at</option>
+                    <option value="updated_at">updated_at</option>
+                    <option value="deadline">deadline</option>
+                    <option value="priority">priority</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Порядок</span>
+                  <select name="sort_order">
+                    <option value="desc">desc</option>
+                    <option value="asc">asc</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Страница</span>
+                  <input name="page" type="number" min="1" value="1" />
+                </label>
+                <label>
+                  <span>Page size</span>
+                  <input name="page_size" type="number" min="1" max="100" value="20" />
+                </label>
+              </div>
+              <div class="filters-actions">
+                <button type="submit">Применить</button>
+                <button id="resetFiltersButton" class="ghost" type="reset">Сбросить</button>
+              </div>
+            </form>
+
+            <div id="tasksMeta" class="muted">Пока нет данных.</div>
+            <div id="tasksList" class="tasks-list empty-state">
+              <p>Авторизуйся и загрузи задачи, чтобы увидеть список.</p>
+            </div>
+          </section>
+
+          <section id="createScreen" class="panel narrow-panel hidden">
+            <div class="panel-head">
+              <h2>Создание задачи</h2>
+              <p>Используется <code>POST /tasks</code> с idempotency key.</p>
+            </div>
+
+            <div class="inline-note" id="createHint">
+              Подсказка: если не помнишь ID пользователя или команды, сначала открой экран «Справочник».
+            </div>
+
+            <form id="createTaskForm" class="stack-form">
+              <label>
+                <span>Заголовок</span>
+                <input name="title" placeholder="Например: Подготовить отчёт" required />
+              </label>
+              <label>
+                <span>Описание</span>
+                <textarea name="description" rows="4" placeholder="Коротко опиши задачу"></textarea>
+              </label>
+              <div class="filters-grid">
+                <label>
+                  <span>Assignee ID</span>
+                  <input name="assignee_id" placeholder="user-id или email" list="userIdSuggestions" required />
+                </label>
+                <label>
+                  <span>Team ID</span>
+                  <input name="team_id" placeholder="team-id или название" list="teamIdSuggestions" required />
+                </label>
+                <label>
+                  <span>Приоритет</span>
+                  <select name="priority">
+                    <option value="low">low</option>
+                    <option value="medium" selected>medium</option>
+                    <option value="high">high</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Дедлайн</span>
+                  <input name="deadline" type="datetime-local" />
+                </label>
+              </div>
+              <button type="submit">Создать задачу</button>
+            </form>
+          </section>
+
+          <section id="referenceScreen" class="hidden">
+            <div class="reference-grid">
+              <section class="panel">
+                <div class="panel-head split">
+                  <div>
+                    <h2>Справочник пользователей</h2>
+                    <p>Используется <code>GET /users</code>, если права позволяют.</p>
+                  </div>
+                  <span id="usersAccessBadge" class="mini-badge neutral">Проверка доступа...</span>
+                </div>
+                <div id="usersReference" class="reference-list empty-state">
+                  <p>Список пользователей пока недоступен.</p>
+                </div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head split">
+                  <div>
+                    <h2>Справочник команд</h2>
+                    <p>Используется <code>GET /teams</code>, если права позволяют.</p>
+                  </div>
+                  <span id="teamsAccessBadge" class="mini-badge neutral">Проверка доступа...</span>
+                </div>
+                <div id="teamsReference" class="reference-list empty-state">
+                  <p>Список команд пока недоступен.</p>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section id="manageScreen" class="hidden">
+            <div class="manage-grid">
+              <section class="panel">
+                <div class="panel-head">
+                  <h2>Создание пользователя</h2>
+                  <p>Админский сценарий через <code>POST /users</code>.</p>
+                </div>
+                <form id="createAdminUserForm" class="stack-form">
+                  <label>
+                    <span>Email</span>
+                    <input name="email" type="email" placeholder="member@example.com" required />
+                  </label>
+                  <label>
+                    <span>Пароль</span>
+                    <input name="password" type="password" placeholder="Минимум 8 символов" required />
+                  </label>
+                  <fieldset class="checkbox-group">
+                    <legend>Роли</legend>
+                    <label><input type="checkbox" name="roles" value="user" checked /> <span>user</span></label>
+                    <label><input type="checkbox" name="roles" value="teamlead" /> <span>teamlead</span></label>
+                    <label><input type="checkbox" name="roles" value="admin" /> <span>admin</span></label>
+                  </fieldset>
+                  <label>
+                    <span>Команды</span>
+                    <input name="team_ids" placeholder="team-id или названия через запятую" />
+                  </label>
+                  <button type="submit">Создать пользователя</button>
+                </form>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head">
+                  <h2>Обновление ролей пользователя</h2>
+                  <p>Админский сценарий через <code>PATCH /users/{user_id}/roles</code>.</p>
+                </div>
+                <form id="updateUserRolesForm" class="stack-form">
+                  <label>
+                    <span>User ID</span>
+                    <input name="user_id" placeholder="user-id или email" list="userIdSuggestions" required />
+                  </label>
+                  <fieldset class="checkbox-group">
+                    <legend>Новые роли</legend>
+                    <label><input type="checkbox" name="roles" value="user" checked /> <span>user</span></label>
+                    <label><input type="checkbox" name="roles" value="teamlead" /> <span>teamlead</span></label>
+                    <label><input type="checkbox" name="roles" value="admin" /> <span>admin</span></label>
+                  </fieldset>
+                  <button type="submit">Обновить роли</button>
+                </form>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head">
+                  <h2>Создание команды</h2>
+                  <p>Админский сценарий через <code>POST /teams</code>.</p>
+                </div>
+                <form id="createTeamForm" class="stack-form">
+                  <label>
+                    <span>Название команды</span>
+                    <input name="name" placeholder="Например: Platform" required />
+                  </label>
+                  <button type="submit">Создать команду</button>
+                </form>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head">
+                  <h2>Добавление участника в команду</h2>
+                  <p>Админский сценарий через <code>POST /teams/{team_id}/members</code>.</p>
+                </div>
+                <form id="addTeamMemberForm" class="stack-form">
+                  <label>
+                    <span>Team ID</span>
+                    <input name="team_id" placeholder="team-id или название" list="teamIdSuggestions" required />
+                  </label>
+                  <label>
+                    <span>User ID</span>
+                    <input name="user_id" placeholder="user-id или email" list="userIdSuggestions" required />
+                  </label>
+                  <button type="submit">Добавить участника</button>
+                </form>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head">
+                  <h2>Удаление участника из команды</h2>
+                  <p>Админский сценарий через <code>DELETE /teams/{team_id}/members/{user_id}</code>.</p>
+                </div>
+                <form id="removeTeamMemberForm" class="stack-form">
+                  <label>
+                    <span>Team ID</span>
+                    <input name="team_id" placeholder="team-id или название" list="teamIdSuggestions" required />
+                  </label>
+                  <label>
+                    <span>User ID</span>
+                    <input name="user_id" placeholder="user-id или email" list="userIdSuggestions" required />
+                  </label>
+                  <button type="submit">Удалить участника</button>
+                </form>
+              </section>
+            </div>
+          </section>
+        </div>
+      </main>
+    </section>
+
+    <datalist id="userIdSuggestions"></datalist>
+    <datalist id="teamIdSuggestions"></datalist>
+
+    <template id="taskCardTemplate">
+      <article class="task-card">
+        <header>
+          <div>
+            <h3 data-field="title"></h3>
+            <p data-field="description"></p>
+          </div>
+          <div class="pill" data-field="status"></div>
+        </header>
+
+        <dl class="task-meta">
+          <div>
+            <dt>ID</dt>
+            <dd data-field="id"></dd>
+          </div>
+          <div>
+            <dt>Owner</dt>
+            <dd data-field="owner_display"></dd>
+            <div class="meta-secondary" data-field="owner_id"></div>
+          </div>
+          <div>
+            <dt>Assignee</dt>
+            <dd data-field="assignee_display"></dd>
+            <div class="meta-secondary" data-field="assignee_id"></div>
+          </div>
+          <div>
+            <dt>Команда</dt>
+            <dd data-field="team_display"></dd>
+            <div class="meta-secondary" data-field="team_id"></div>
+          </div>
+          <div>
+            <dt>Приоритет</dt>
+            <dd data-field="priority"></dd>
+          </div>
+          <div>
+            <dt>Дедлайн</dt>
+            <dd data-field="deadline"></dd>
+          </div>
+        </dl>
+
+        <form class="status-form">
+          <label>
+            <span>Новый статус</span>
+            <select name="status">
+              <option value="in_progress">in_progress</option>
+              <option value="review">review</option>
+              <option value="done">done</option>
+              <option value="cancelled">cancelled</option>
+            </select>
+          </label>
+          <label>
+            <span>Комментарий</span>
+            <input name="comment" placeholder="Например: передаю на проверку" />
+          </label>
+          <button type="submit">Сменить статус</button>
+        </form>
+      </article>
+    </template>
+
+    <template id="referenceItemTemplate">
+      <article class="reference-item">
+        <div class="reference-item__head split">
+          <div>
+            <h3 data-field="title"></h3>
+            <p data-field="subtitle"></p>
+          </div>
+          <div class="mini-badge" data-field="badge"></div>
+        </div>
+        <dl class="reference-meta">
+          <div>
+            <dt>ID</dt>
+            <dd data-field="id"></dd>
+          </div>
+          <div>
+            <dt>Дополнительно</dt>
+            <dd data-field="extra"></dd>
+          </div>
+        </dl>
+      </article>
+    </template>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
+

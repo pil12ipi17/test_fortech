@@ -3,7 +3,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from .config import Settings, get_settings
-from .schemas import CurrentUser
+from ..api.schemas import CurrentUser
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
