@@ -1,6 +1,9 @@
 import argparse
-import asyncio
 import logging
+from datetime import datetime, timezone
+
+from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.triggers.interval import IntervalTrigger
 
 from .report import generate_audit_report
 from ..core.config import get_settings
@@ -28,12 +31,31 @@ def generate_once() -> str:
         db.close()
 
 
-async def run_forever() -> None:
+def create_scheduler() -> BlockingScheduler:
     settings = get_settings()
+    scheduler = BlockingScheduler(timezone="UTC")
+    scheduler.add_job(
+        generate_once,
+        trigger=IntervalTrigger(seconds=settings.audit_report_interval_seconds),
+        id="audit-report-csv",
+        name="Generate audit CSV report",
+        replace_existing=True,
+        next_run_time=datetime.now(timezone.utc),
+    )
+    return scheduler
+
+
+def run_forever() -> None:
+    settings = get_settings()
+    scheduler = create_scheduler()
     logger.info("Audit report cron started interval_seconds=%s", settings.audit_report_interval_seconds)
-    while True:
-        generate_once()
-        await asyncio.sleep(settings.audit_report_interval_seconds)
+    try:
+        scheduler.start()
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Audit report cron stopped")
+    finally:
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
 
 
 def main() -> None:
@@ -43,7 +65,7 @@ def main() -> None:
     if args.once:
         generate_once()
         return
-    asyncio.run(run_forever())
+    run_forever()
 
 
 if __name__ == "__main__":

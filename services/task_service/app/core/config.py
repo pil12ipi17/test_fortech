@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     worker_retry_backoff_max_seconds: float = 10.0
     auth_database_url: str | None = None
     audit_report_path: str = "/app/reports/audit_report.csv"
-    audit_report_interval_seconds: float = 300.0
+    audit_report_interval_seconds: float = 3600.0
     notification_dispatch_interval_seconds: float = 60.0
     notification_dispatch_batch_size: int = 50
 

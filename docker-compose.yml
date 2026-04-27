@@ -154,7 +154,7 @@ services:
       TASK_WORKER_RETRY_BACKOFF_MAX_SECONDS: ${TASK_WORKER_RETRY_BACKOFF_MAX_SECONDS:-10}
       TASK_AUTH_DATABASE_URL: ${TASK_AUTH_DATABASE_URL:-postgresql+psycopg://auth_user:auth_password@auth-db:5432/auth_db}
       TASK_AUDIT_REPORT_PATH: ${TASK_AUDIT_REPORT_PATH:-/app/reports/audit_report.csv}
-      TASK_AUDIT_REPORT_INTERVAL_SECONDS: ${TASK_AUDIT_REPORT_INTERVAL_SECONDS:-300}
+      TASK_AUDIT_REPORT_INTERVAL_SECONDS: ${TASK_AUDIT_REPORT_INTERVAL_SECONDS:-3600}
     depends_on:
       task-db:
         condition: service_healthy
@@ -177,7 +177,7 @@ services:
       TASK_AUTH_DATABASE_URL: ${TASK_AUTH_DATABASE_URL:-postgresql+psycopg://auth_user:auth_password@auth-db:5432/auth_db}
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
       TASK_AUDIT_REPORT_PATH: ${TASK_AUDIT_REPORT_PATH:-/app/reports/audit_report.csv}
-      TASK_AUDIT_REPORT_INTERVAL_SECONDS: ${TASK_AUDIT_REPORT_INTERVAL_SECONDS:-300}
+      TASK_AUDIT_REPORT_INTERVAL_SECONDS: ${TASK_AUDIT_REPORT_INTERVAL_SECONDS:-3600}
     depends_on:
       auth-db:
         condition: service_healthy
