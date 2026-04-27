@@ -27,6 +27,9 @@ from services.task_service.app.notifications.dispatcher import dispatch_pending_
 from services.task_service.app.notifications.handlers import handle_notification_event  # noqa: E402
 from services.task_service.app.tasks.outbox import create_outbox_event  # noqa: E402
 from services.task_service.app.messaging.worker_store import claim_event_for_processing, record_worker_error  # noqa: E402
+from services.task_service.app.core.config import Settings, get_settings  # noqa: E402
+from services.task_service.app.api import routers as task_routers  # noqa: E402
+from tests.fake_redis import FakeRedis  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -487,3 +490,86 @@ def test_idempotency_replays_create_and_status_change_without_duplicate_audit():
         assert status_outbox_count == 1
     finally:
         db.close()
+
+
+def test_audit_report_endpoint_requires_admin_and_writes_csv():
+    report_path = Path.cwd() / "test_endpoint_audit_report.csv"
+    if report_path.exists():
+        report_path.unlink()
+    settings = Settings(
+        database_url=os.environ["TASK_DATABASE_URL"],
+        jwt_secret="test-secret",
+        audit_report_path=str(report_path),
+        auth_database_url=None,
+    )
+    app.dependency_overrides[get_settings] = lambda: settings
+
+    user_token = make_token("report-user-1", "report-user@example.com", roles=["user"], team_ids=[])
+    admin_token = make_token("report-admin-1", "report-admin@example.com", roles=["admin"], team_ids=[])
+
+    try:
+        with TestClient(app) as client:
+            forbidden = client.post("/audit/report", headers={"Authorization": f"Bearer {user_token}"})
+            assert forbidden.status_code == 403
+
+            response = client.post("/audit/report", headers={"Authorization": f"Bearer {admin_token}"})
+            assert response.status_code == 200
+            assert response.json()["filename"] == report_path.name
+            assert response.json()["size_bytes"] > 0
+            assert report_path.exists()
+            assert report_path.read_text(encoding="utf-8").startswith("date,metric_name,metric_value")
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
+        if report_path.exists():
+            report_path.unlink()
+
+
+def test_task_item_cache_hit_and_invalidation_after_update(monkeypatch):
+    fake_redis = FakeRedis()
+    cache_settings = Settings(
+        database_url=os.environ["TASK_DATABASE_URL"],
+        jwt_secret="test-secret",
+        redis_url="redis://fake",
+        task_cache_ttl_seconds=60,
+        task_write_rate_limit_requests=100,
+        task_write_rate_limit_window_seconds=60,
+    )
+    app.dependency_overrides[get_settings] = lambda: cache_settings
+    monkeypatch.setattr(task_routers, "get_redis_client", lambda settings: fake_redis)
+
+    owner_token = make_token("cache-user-1", "cache@example.com", roles=["user"], team_ids=["cache-team-1"])
+    headers = {"Authorization": f"Bearer {owner_token}"}
+
+    try:
+        with TestClient(app) as client:
+            create_response = client.post(
+                "/tasks",
+                headers=headers,
+                json={
+                    "title": "Cache me",
+                    "description": "Read endpoint should be cached",
+                    "assignee_id": "cache-user-1",
+                    "team_id": "cache-team-1",
+                    "priority": "high",
+                },
+            )
+            assert create_response.status_code == 201
+            task_id = create_response.json()["id"]
+
+            first_read = client.get(f"/tasks/{task_id}", headers=headers)
+            second_read = client.get(f"/tasks/{task_id}", headers=headers)
+            assert first_read.status_code == 200
+            assert second_read.status_code == 200
+            assert second_read.json() == first_read.json()
+            assert fake_redis.setex_calls >= 1
+            assert list(fake_redis.scan_iter("tasks:*"))
+
+            update_response = client.patch(
+                f"/tasks/{task_id}",
+                headers=headers,
+                json={"priority": "medium"},
+            )
+            assert update_response.status_code == 200
+            assert list(fake_redis.scan_iter("tasks:*")) == []
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
