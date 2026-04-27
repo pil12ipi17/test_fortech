@@ -5,10 +5,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, 
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from .audit import add_audit_log
-from .idempotency import compute_request_hash, create_idempotency_record, maybe_replay_idempotent_response
-from .db import get_db
-from .models import Task, TaskPriority, TaskStatus, TaskStatusHistory
+from ..audit.request_audit import add_audit_log
+from ..tasks.events import TaskEventType, build_event_envelope
+from ..core.idempotency import compute_request_hash, create_idempotency_record, maybe_replay_idempotent_response
+from ..core.db import get_db
+from ..tasks.models import Task, TaskPriority, TaskStatus, TaskStatusHistory
+from ..tasks.outbox import create_outbox_event
 from .schemas import (
     CurrentUser,
     SortOrder,
@@ -20,8 +22,8 @@ from .schemas import (
     TaskStatusUpdate,
     TaskUpdate,
 )
-from .rbac import apply_visibility_scope, can_delete_task, can_manage_task, get_task_if_visible
-from .security import get_current_user
+from ..core.rbac import apply_visibility_scope, can_delete_task, can_manage_task, get_task_if_visible
+from ..core.security import get_current_user
 
 router = APIRouter(tags=["tasks"])
 
@@ -37,6 +39,22 @@ ALLOWED_STATUS_TRANSITIONS = {
     TaskStatus.DONE: set(),
     TaskStatus.CANCELLED: set(),
 }
+
+
+def add_task_outbox_event(
+    *,
+    db: Session,
+    event_type: TaskEventType,
+    aggregate_id: str,
+    payload: dict,
+    correlation_id: str | None = None,
+) -> None:
+    envelope = build_event_envelope(
+        event_type=event_type,
+        payload=payload,
+        correlation_id=correlation_id,
+    )
+    db.add(create_outbox_event(envelope=envelope, aggregate_type="task", aggregate_id=aggregate_id))
 
 
 
@@ -112,6 +130,22 @@ def create_task(
             )
         )
 
+    add_task_outbox_event(
+        db=db,
+        event_type=TaskEventType.CREATED,
+        aggregate_id=task.id,
+        correlation_id=idempotency_key,
+        payload={
+            "task_id": task.id,
+            "owner_id": task.owner_id,
+            "assignee_id": task.assignee_id,
+            "team_id": task.team_id,
+            "title": task.title,
+            "status": task.status,
+            "priority": task.priority,
+            "deadline": task.deadline.isoformat() if task.deadline else None,
+        },
+    )
     add_audit_log(
         db=db,
         actor_user_id=current_user.user_id,
@@ -272,6 +306,21 @@ def change_task_status(
             )
         )
 
+    add_task_outbox_event(
+        db=db,
+        event_type=TaskEventType.STATUS_CHANGED,
+        aggregate_id=task.id,
+        correlation_id=idempotency_key,
+        payload={
+            "task_id": task.id,
+            "owner_id": task.owner_id,
+            "assignee_id": task.assignee_id,
+            "team_id": task.team_id,
+            "from_status": current_status.value,
+            "to_status": target_status.value,
+            "comment": payload.comment,
+        },
+    )
     add_audit_log(
         db=db,
         actor_user_id=current_user.user_id,
@@ -317,6 +366,18 @@ def delete_task(
         target_type="task",
         target_id=task.id,
         details={"team_id": task.team_id, "owner_id": task.owner_id, "assignee_id": task.assignee_id},
+    )
+    add_task_outbox_event(
+        db=db,
+        event_type=TaskEventType.DELETED,
+        aggregate_id=task.id,
+        payload={
+            "task_id": task.id,
+            "owner_id": task.owner_id,
+            "assignee_id": task.assignee_id,
+            "team_id": task.team_id,
+            "status": task.status,
+        },
     )
     db.delete(task)
     db.commit()

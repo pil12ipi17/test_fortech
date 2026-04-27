@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .models import IdempotencyKey
+from ..tasks.models import IdempotencyKey
 
 IDEMPOTENCY_TTL = timedelta(hours=24)
 

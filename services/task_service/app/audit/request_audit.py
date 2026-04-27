@@ -2,7 +2,7 @@ import json
 
 from sqlalchemy.orm import Session
 
-from .models import AuditLog
+from ..tasks.models import AuditLog
 
 
 def serialize_details(details: dict | None) -> str:

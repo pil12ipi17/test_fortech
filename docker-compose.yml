@@ -31,6 +31,23 @@ services:
     volumes:
       - task_data:/var/lib/postgresql/data
 
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-task_user}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-task_password}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_DEFAULT_VHOST:-task-system}
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
   auth-service:
     build:
       context: .
@@ -50,9 +67,126 @@ services:
     environment:
       TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
+      TASK_RABBITMQ_URL: ${TASK_RABBITMQ_URL:-amqp://task_user:task_password@rabbitmq:5672/task-system}
+      TASK_RABBITMQ_TASKS_EXCHANGE: ${TASK_RABBITMQ_TASKS_EXCHANGE:-tasks.events}
+      TASK_WORKER_MAX_RETRY_ATTEMPTS: ${TASK_WORKER_MAX_RETRY_ATTEMPTS:-3}
     depends_on:
       task-db:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/readiness', timeout=2).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  outbox-publisher:
+    build:
+      context: .
+      dockerfile: services/task_service/Dockerfile
+    command: ["python", "-m", "app.messaging.outbox_publisher"]
+    environment:
+      TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
+      TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
+      TASK_RABBITMQ_URL: ${TASK_RABBITMQ_URL:-amqp://task_user:task_password@rabbitmq:5672/task-system}
+      TASK_RABBITMQ_TASKS_EXCHANGE: ${TASK_RABBITMQ_TASKS_EXCHANGE:-tasks.events}
+      TASK_WORKER_MAX_RETRY_ATTEMPTS: ${TASK_WORKER_MAX_RETRY_ATTEMPTS:-3}
+      TASK_OUTBOX_PUBLISH_BATCH_SIZE: ${TASK_OUTBOX_PUBLISH_BATCH_SIZE:-50}
+      TASK_OUTBOX_PUBLISH_POLL_INTERVAL_SECONDS: ${TASK_OUTBOX_PUBLISH_POLL_INTERVAL_SECONDS:-2}
+    depends_on:
+      task-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      task-service:
+        condition: service_healthy
+
+  notification-worker:
+    build:
+      context: .
+      dockerfile: services/task_service/Dockerfile
+    command: ["python", "-m", "app.notifications.worker"]
+    environment:
+      TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
+      TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
+      TASK_RABBITMQ_URL: ${TASK_RABBITMQ_URL:-amqp://task_user:task_password@rabbitmq:5672/task-system}
+      TASK_RABBITMQ_TASKS_EXCHANGE: ${TASK_RABBITMQ_TASKS_EXCHANGE:-tasks.events}
+      TASK_WORKER_MAX_RETRY_ATTEMPTS: ${TASK_WORKER_MAX_RETRY_ATTEMPTS:-3}
+      TASK_WORKER_RETRY_BACKOFF_BASE_SECONDS: ${TASK_WORKER_RETRY_BACKOFF_BASE_SECONDS:-1}
+      TASK_WORKER_RETRY_BACKOFF_MAX_SECONDS: ${TASK_WORKER_RETRY_BACKOFF_MAX_SECONDS:-10}
+    depends_on:
+      task-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      task-service:
+        condition: service_healthy
+
+  notification-cron:
+    build:
+      context: .
+      dockerfile: services/task_service/Dockerfile
+    command: ["python", "-m", "app.notifications.cron"]
+    environment:
+      TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
+      TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
+      TASK_NOTIFICATION_DISPATCH_INTERVAL_SECONDS: ${TASK_NOTIFICATION_DISPATCH_INTERVAL_SECONDS:-60}
+      TASK_NOTIFICATION_DISPATCH_BATCH_SIZE: ${TASK_NOTIFICATION_DISPATCH_BATCH_SIZE:-50}
+    depends_on:
+      task-db:
+        condition: service_healthy
+      task-service:
+        condition: service_healthy
+
+  audit-worker:
+    build:
+      context: .
+      dockerfile: services/task_service/Dockerfile
+    command: ["python", "-m", "app.audit.worker"]
+    environment:
+      TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
+      TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
+      TASK_RABBITMQ_URL: ${TASK_RABBITMQ_URL:-amqp://task_user:task_password@rabbitmq:5672/task-system}
+      TASK_RABBITMQ_TASKS_EXCHANGE: ${TASK_RABBITMQ_TASKS_EXCHANGE:-tasks.events}
+      TASK_WORKER_MAX_RETRY_ATTEMPTS: ${TASK_WORKER_MAX_RETRY_ATTEMPTS:-3}
+      TASK_WORKER_RETRY_BACKOFF_BASE_SECONDS: ${TASK_WORKER_RETRY_BACKOFF_BASE_SECONDS:-1}
+      TASK_WORKER_RETRY_BACKOFF_MAX_SECONDS: ${TASK_WORKER_RETRY_BACKOFF_MAX_SECONDS:-10}
+      TASK_AUTH_DATABASE_URL: ${TASK_AUTH_DATABASE_URL:-postgresql+psycopg://auth_user:auth_password@auth-db:5432/auth_db}
+      TASK_AUDIT_REPORT_PATH: ${TASK_AUDIT_REPORT_PATH:-/app/reports/audit_report.csv}
+      TASK_AUDIT_REPORT_INTERVAL_SECONDS: ${TASK_AUDIT_REPORT_INTERVAL_SECONDS:-3600}
+    depends_on:
+      task-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      auth-db:
+        condition: service_healthy
+      task-service:
+        condition: service_healthy
+    volumes:
+      - ./reports:/app/reports
+
+  audit-report-cron:
+    build:
+      context: .
+      dockerfile: services/task_service/Dockerfile
+    command: ["python", "-m", "app.audit.report_cron"]
+    environment:
+      TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
+      TASK_AUTH_DATABASE_URL: ${TASK_AUTH_DATABASE_URL:-postgresql+psycopg://auth_user:auth_password@auth-db:5432/auth_db}
+      TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
+      TASK_AUDIT_REPORT_PATH: ${TASK_AUDIT_REPORT_PATH:-/app/reports/audit_report.csv}
+      TASK_AUDIT_REPORT_INTERVAL_SECONDS: ${TASK_AUDIT_REPORT_INTERVAL_SECONDS:-3600}
+    depends_on:
+      auth-db:
+        condition: service_healthy
+      task-db:
+        condition: service_healthy
+      task-service:
+        condition: service_healthy
+    volumes:
+      - ./reports:/app/reports
 
   frontend:
     build:
@@ -70,7 +204,7 @@ services:
       auth-service:
         condition: service_started
       task-service:
-        condition: service_started
+        condition: service_healthy
       frontend:
         condition: service_healthy
     ports:
@@ -86,3 +220,4 @@ services:
 volumes:
   auth_data:
   task_data:
+  rabbitmq_data:

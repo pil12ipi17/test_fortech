@@ -240,34 +240,54 @@ async function handleCreateTask(event) {
   event.preventDefault();
   clearBanner();
 
-  const formData = new FormData(event.currentTarget);
-  const deadline = formData.get("deadline");
-  const assigneeId = resolveUserReference(String(formData.get("assignee_id") || "").trim());
-  const teamId = resolveTeamReference(String(formData.get("team_id") || "").trim());
-  const payload = {
-    title: String(formData.get("title") || "").trim(),
-    description: String(formData.get("description") || "").trim() || null,
-    assignee_id: assigneeId,
-    team_id: teamId,
-    priority: formData.get("priority"),
-    deadline: deadline ? new Date(String(deadline)).toISOString() : null,
-  };
+  const form = event.currentTarget;
+  if (form.dataset.submitting === "true") {
+    return;
+  }
 
-  const task = await apiFetch("/tasks", {
-    method: "POST",
-    body: JSON.stringify(payload),
-    headers: {
-      "Content-Type": "application/json",
-      "Idempotency-Key": `create-${crypto.randomUUID()}`,
-    },
-  });
+  form.dataset.submitting = "true";
+  const idempotencyKey = form.dataset.idempotencyKey || `create-${crypto.randomUUID()}`;
+  form.dataset.idempotencyKey = idempotencyKey;
+  const submitButton = form.querySelector("[type='submit']");
+  if (submitButton) {
+    submitButton.disabled = true;
+  }
 
-  event.currentTarget.reset();
-  setScreen("tasks");
-  await loadTasks();
-  showBanner(`Задача «${task.title}» создана.`, "success");
+  try {
+    const formData = new FormData(form);
+    const deadline = formData.get("deadline");
+    const assigneeId = resolveUserReference(String(formData.get("assignee_id") || "").trim());
+    const teamId = resolveTeamReference(String(formData.get("team_id") || "").trim());
+    const payload = {
+      title: String(formData.get("title") || "").trim(),
+      description: String(formData.get("description") || "").trim() || null,
+      assignee_id: assigneeId,
+      team_id: teamId,
+      priority: formData.get("priority"),
+      deadline: deadline ? new Date(String(deadline)).toISOString() : null,
+    };
+
+    const task = await apiFetch("/tasks", {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": idempotencyKey,
+      },
+    });
+
+    form.reset();
+    delete form.dataset.idempotencyKey;
+    setScreen("tasks");
+    await loadTasks();
+    showBanner(`Задача «${task.title}» создана.`, "success");
+  } finally {
+    delete form.dataset.submitting;
+    if (submitButton) {
+      submitButton.disabled = false;
+    }
+  }
 }
-
 async function handleAdminUserCreate(event) {
   event.preventDefault();
   clearBanner();

@@ -8,9 +8,9 @@ from sqlalchemy import text
 
 from shared.errors import register_error_handlers
 
-from .config import get_settings
-from .db import engine, run_migrations
-from .routers import router as task_router
+from .core.config import get_settings
+from .core.db import engine, run_migrations
+from .api.routers import router as task_router
 
 logging.basicConfig(
     level=logging.INFO,
