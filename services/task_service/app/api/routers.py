@@ -1,10 +1,14 @@
+import logging
 from datetime import datetime
 from math import ceil
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
+from shared.rate_limit import check_fixed_window_rate_limit
+
+from ..audit.report import generate_audit_report as build_audit_report
 from ..audit.request_audit import add_audit_log
 from ..tasks.events import TaskEventType, build_event_envelope
 from ..core.idempotency import compute_request_hash, create_idempotency_record, maybe_replay_idempotent_response
@@ -24,6 +28,11 @@ from .schemas import (
 )
 from ..core.rbac import apply_visibility_scope, can_delete_task, can_manage_task, get_task_if_visible
 from ..core.security import get_current_user
+from ..core.config import Settings, get_settings
+from ..cache.redis_client import get_redis_client
+from ..cache.task_cache import build_task_item_cache_key, get_cached_json, invalidate_task_cache, set_cached_json
+
+logger = logging.getLogger("task-service.rate-limit")
 
 router = APIRouter(tags=["tasks"])
 
@@ -31,6 +40,7 @@ DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 100
 CREATE_TASK_OPERATION = "create_task"
 CHANGE_TASK_STATUS_OPERATION = "change_task_status"
+ADMIN_ROLE = "admin"
 
 ALLOWED_STATUS_TRANSITIONS = {
     TaskStatus.TODO: {TaskStatus.IN_PROGRESS, TaskStatus.CANCELLED},
@@ -39,6 +49,40 @@ ALLOWED_STATUS_TRANSITIONS = {
     TaskStatus.DONE: set(),
     TaskStatus.CANCELLED: set(),
 }
+
+
+
+def get_client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if request.client is None:
+        return "unknown"
+    return request.client.host
+
+
+def enforce_task_write_rate_limit(*, request: Request, current_user: CurrentUser, settings: Settings) -> None:
+    client_ip = get_client_ip(request)
+    key = f"rl:tasks:write:{current_user.user_id}:{client_ip}"
+    result = check_fixed_window_rate_limit(
+        redis_client=get_redis_client(settings),
+        key=key,
+        limit=settings.task_write_rate_limit_requests,
+        window_seconds=settings.task_write_rate_limit_window_seconds,
+    )
+    if result.allowed:
+        return
+
+    logger.warning(
+        "rate_limit_exceeded scope=tasks.write key=%s retry_after=%s",
+        key,
+        result.retry_after_seconds,
+    )
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="Too many task write requests",
+        headers={"Retry-After": str(result.retry_after_seconds)},
+    )
 
 
 def add_task_outbox_event(
@@ -87,10 +131,13 @@ def build_order_clauses(*, sort_by: TaskSortBy, sort_order: SortOrder):
 @router.post("/tasks", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
 def create_task(
     payload: TaskCreate,
+    request: Request,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", convert_underscores=False),
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ):
+    enforce_task_write_rate_limit(request=request, current_user=current_user, settings=settings)
     request_hash = compute_request_hash(payload.model_dump(mode="json"))
     replay = maybe_replay_idempotent_response(
         db=db,
@@ -161,6 +208,7 @@ def create_task(
     )
     db.commit()
     db.refresh(task)
+    invalidate_task_cache(get_redis_client(settings))
     return task
 
 
@@ -209,21 +257,61 @@ def list_tasks(
     return TaskListResponse(items=list(tasks), total=total, page=page, page_size=page_size, pages=pages)
 
 
+
+@router.post("/audit/report", tags=["audit"])
+def generate_audit_report_endpoint(
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    if ADMIN_ROLE not in current_user.roles:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Audit report generation is forbidden")
+
+    output_path = build_audit_report(
+        db=db,
+        output_path=settings.audit_report_path,
+        auth_database_url=settings.auth_database_url,
+    )
+    return {
+        "filename": output_path.name,
+        "path": str(output_path),
+        "size_bytes": output_path.stat().st_size,
+    }
+
+
 @router.get("/tasks/{task_id}", response_model=TaskResponse)
 def get_task(
     task_id: str,
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ):
-    return get_task_if_visible(db=db, task_id=task_id, current_user=current_user)
+    redis_client = get_redis_client(settings)
+    cache_key = build_task_item_cache_key(current_user=current_user, task_id=task_id)
+    cached = get_cached_json(redis_client=redis_client, key=cache_key)
+    if cached is not None:
+        return cached
+
+    task = get_task_if_visible(db=db, task_id=task_id, current_user=current_user)
+    response = TaskResponse.model_validate(task)
+    set_cached_json(
+        redis_client=redis_client,
+        key=cache_key,
+        value=response.model_dump(mode="json"),
+        ttl_seconds=settings.task_cache_ttl_seconds,
+    )
+    return response
 
 @router.patch("/tasks/{task_id}", response_model=TaskResponse)
 def update_task(
     task_id: str,
     payload: TaskUpdate,
+    request: Request,
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ):
+    enforce_task_write_rate_limit(request=request, current_user=current_user, settings=settings)
     task = get_task_if_visible(db=db, task_id=task_id, current_user=current_user)
     if not can_manage_task(task=task, current_user=current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Task update is forbidden")
@@ -249,6 +337,7 @@ def update_task(
     )
     db.commit()
     db.refresh(task)
+    invalidate_task_cache(get_redis_client(settings))
     return task
 
 
@@ -256,10 +345,13 @@ def update_task(
 def change_task_status(
     task_id: str,
     payload: TaskStatusUpdate,
+    request: Request,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", convert_underscores=False),
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ):
+    enforce_task_write_rate_limit(request=request, current_user=current_user, settings=settings)
     request_hash = compute_request_hash({"task_id": task_id, **payload.model_dump(mode="json")})
     replay = maybe_replay_idempotent_response(
         db=db,
@@ -331,6 +423,7 @@ def change_task_status(
     )
     db.commit()
     db.refresh(task)
+    invalidate_task_cache(get_redis_client(settings))
     return task
 
 
@@ -352,9 +445,12 @@ def get_task_history(
 @router.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_task(
     task_id: str,
+    request: Request,
     current_user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ):
+    enforce_task_write_rate_limit(request=request, current_user=current_user, settings=settings)
     task = get_task_if_visible(db=db, task_id=task_id, current_user=current_user)
     if not can_delete_task(task=task, current_user=current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Task deletion is forbidden")
@@ -381,4 +477,5 @@ def delete_task(
     )
     db.delete(task)
     db.commit()
+    invalidate_task_cache(get_redis_client(settings))
     return Response(status_code=status.HTTP_204_NO_CONTENT)

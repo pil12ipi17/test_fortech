@@ -13,6 +13,9 @@ os.environ["AUTH_JWT_SECRET"] = "test-secret"
 from services.auth_service.app.db import SessionLocal  # noqa: E402
 from services.auth_service.app.main import app  # noqa: E402
 from services.auth_service.app.models import AuditLog  # noqa: E402
+from services.auth_service.app.config import Settings, get_settings  # noqa: E402
+from services.auth_service.app import routers as auth_routers  # noqa: E402
+from tests.fake_redis import FakeRedis  # noqa: E402
 
 
 def test_auth_roles_teams_refresh_audit_and_error_format_flow():
@@ -159,3 +162,28 @@ def test_auth_roles_teams_refresh_audit_and_error_format_flow():
         assert "auth.logout" in action_list
     finally:
         db.close()
+
+def test_login_rate_limit_returns_429_with_retry_after(monkeypatch):
+    fake_redis = FakeRedis()
+    limited_settings = Settings(
+        database_url=os.environ["AUTH_DATABASE_URL"],
+        jwt_secret="test-secret",
+        redis_url="redis://fake",
+        login_rate_limit_requests=1,
+        login_rate_limit_window_seconds=60,
+    )
+    app.dependency_overrides[get_settings] = lambda: limited_settings
+    monkeypatch.setattr(auth_routers, "get_redis_client", lambda settings: fake_redis)
+
+    try:
+        with TestClient(app) as client:
+            payload = {"email": "missing@example.com", "password": "wrongpass123"}
+            first_response = client.post("/auth/login", json=payload)
+            second_response = client.post("/auth/login", json=payload)
+
+        assert first_response.status_code == 401
+        assert second_response.status_code == 429
+        assert second_response.headers["retry-after"] == "60"
+        assert second_response.json()["error"]["code"] == "too_many_requests"
+    finally:
+        app.dependency_overrides.pop(get_settings, None)

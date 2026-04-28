@@ -48,6 +48,20 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
 
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
   auth-service:
     build:
       context: .
@@ -56,6 +70,9 @@ services:
       AUTH_DATABASE_URL: postgresql+psycopg://auth_user:auth_password@auth-db:5432/auth_db
       AUTH_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
       AUTH_ACCESS_TOKEN_EXPIRE_MINUTES: 120
+      AUTH_REDIS_URL: ${AUTH_REDIS_URL:-redis://redis:6379/0}
+      AUTH_LOGIN_RATE_LIMIT_REQUESTS: ${AUTH_LOGIN_RATE_LIMIT_REQUESTS:-5}
+      AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS:-60}
     depends_on:
       auth-db:
         condition: service_healthy
@@ -70,6 +87,14 @@ services:
       TASK_RABBITMQ_URL: ${TASK_RABBITMQ_URL:-amqp://task_user:task_password@rabbitmq:5672/task-system}
       TASK_RABBITMQ_TASKS_EXCHANGE: ${TASK_RABBITMQ_TASKS_EXCHANGE:-tasks.events}
       TASK_WORKER_MAX_RETRY_ATTEMPTS: ${TASK_WORKER_MAX_RETRY_ATTEMPTS:-3}
+      TASK_REDIS_URL: ${TASK_REDIS_URL:-redis://redis:6379/0}
+      TASK_TASK_CACHE_TTL_SECONDS: ${TASK_TASK_CACHE_TTL_SECONDS:-90}
+      TASK_TASK_WRITE_RATE_LIMIT_REQUESTS: ${TASK_TASK_WRITE_RATE_LIMIT_REQUESTS:-30}
+      TASK_TASK_WRITE_RATE_LIMIT_WINDOW_SECONDS: ${TASK_TASK_WRITE_RATE_LIMIT_WINDOW_SECONDS:-60}
+      TASK_AUTH_DATABASE_URL: ${TASK_AUTH_DATABASE_URL:-postgresql+psycopg://auth_user:auth_password@auth-db:5432/auth_db}
+      TASK_AUDIT_REPORT_PATH: ${TASK_AUDIT_REPORT_PATH:-/app/reports/audit_report.csv}
+    volumes:
+      - ./reports:/app/reports
     depends_on:
       task-db:
         condition: service_healthy
@@ -221,3 +246,4 @@ volumes:
   auth_data:
   task_data:
   rabbitmq_data:
+  redis_data:

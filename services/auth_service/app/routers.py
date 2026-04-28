@@ -1,6 +1,7 @@
+import logging
 import math
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -38,12 +39,50 @@ from .auth_flow import (
     set_user_roles,
 )
 from .security import hash_password
+from .redis_client import get_redis_client
+from shared.rate_limit import check_fixed_window_rate_limit
+
+logger = logging.getLogger("auth-service.rate-limit")
 
 router = APIRouter()
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 users_router = APIRouter(prefix="/users", tags=["users"])
 teams_router = APIRouter(prefix="/teams", tags=["teams"])
 
+
+
+def get_client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if request.client is None:
+        return "unknown"
+    return request.client.host
+
+
+def enforce_login_rate_limit(*, request: Request, payload: UserLogin, settings: Settings) -> None:
+    normalized_email = payload.email.strip().lower()
+    client_ip = get_client_ip(request)
+    key = f"rl:login:{client_ip}:{normalized_email}"
+    result = check_fixed_window_rate_limit(
+        redis_client=get_redis_client(settings),
+        key=key,
+        limit=settings.login_rate_limit_requests,
+        window_seconds=settings.login_rate_limit_window_seconds,
+    )
+    if result.allowed:
+        return
+
+    logger.warning(
+        "rate_limit_exceeded scope=auth.login key=%s retry_after=%s",
+        key,
+        result.retry_after_seconds,
+    )
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="Too many login attempts",
+        headers={"Retry-After": str(result.retry_after_seconds)},
+    )
 
 def build_team_response(*, team: Team, db: Session) -> TeamResponse:
     member_count = db.scalar(
@@ -75,9 +114,11 @@ def register_user(
 @auth_router.post("/login", response_model=AuthResponse)
 def login_user(
     payload: UserLogin,
+    request: Request,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
+    enforce_login_rate_limit(request=request, payload=payload, settings=settings)
     return login_user_account(email=payload.email, password=payload.password, db=db, settings=settings)
 
 

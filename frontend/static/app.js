@@ -1,4 +1,4 @@
-﻿const API_BASE = window.__API_BASE__ || "/api/v1";
+const API_BASE = window.__API_BASE__ || "/api/v1";
 const storageKeys = {
   accessToken: "task_console_access_token",
   refreshToken: "task_console_refresh_token",
@@ -52,6 +52,8 @@ const elements = {
   addTeamMemberForm: document.getElementById("addTeamMemberForm"),
   updateUserRolesForm: document.getElementById("updateUserRolesForm"),
   removeTeamMemberForm: document.getElementById("removeTeamMemberForm"),
+  generateAuditReportButton: document.getElementById("generateAuditReportButton"),
+  auditReportResult: document.getElementById("auditReportResult"),
   reloadTasksButton: document.getElementById("reloadTasksButton"),
   resetFiltersButton: document.getElementById("resetFiltersButton"),
   refreshButton: document.getElementById("refreshButton"),
@@ -117,6 +119,7 @@ function bindEvents() {
   elements.addTeamMemberForm.addEventListener("submit", handleTeamMemberCreate);
   elements.updateUserRolesForm.addEventListener("submit", handleUserRolesUpdate);
   elements.removeTeamMemberForm.addEventListener("submit", handleTeamMemberRemove);
+  elements.generateAuditReportButton.addEventListener("click", () => handleAuditReportGenerate().catch(handleApiError));
   elements.reloadTasksButton.addEventListener("click", () => loadTasks().catch(handleApiError));
   elements.refreshButton.addEventListener("click", handleRefresh);
   elements.logoutButton.addEventListener("click", handleLogout);
@@ -402,6 +405,29 @@ async function handleTeamMemberRemove(event) {
   showBanner("Участник удалён из команды.", "success");
 }
 
+
+
+async function handleAuditReportGenerate() {
+  clearBanner();
+  elements.auditReportResult.classList.add("hidden");
+  elements.generateAuditReportButton.disabled = true;
+
+  try {
+    const result = await apiFetch("/audit/report", { method: "POST" });
+    elements.auditReportResult.textContent = `CSV отчет обновлен: ${result.filename}, размер ${result.size_bytes} bytes. Файл лежит в reports/audit_report.csv.`;
+    elements.auditReportResult.classList.remove("hidden");
+    showBanner("Audit CSV отчет сгенерирован.", "success");
+  } finally {
+    elements.generateAuditReportButton.disabled = false;
+  }
+}
+
+async function handleTaskCacheCheck(taskId) {
+  clearBanner();
+  const task = await apiFetch(`/tasks/${taskId}`);
+  showBanner(`GET /tasks/${task.id} выполнен. Повтори клик и проверь cache_hit в логах task-service.`, "success");
+}
+
 async function handleStatusChange(taskId, form) {
   clearBanner();
   const formData = new FormData(form);
@@ -614,6 +640,14 @@ function renderTasks(result) {
       statusSelect.value = normalizeNextStatus(task.status);
     }
 
+    const cacheButton = fragment.querySelector(".cache-check-button");
+    cacheButton.addEventListener("click", async () => {
+      try {
+        await handleTaskCacheCheck(task.id);
+      } catch (error) {
+        handleApiError(error);
+      }
+    });
     const form = fragment.querySelector(".status-form");
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
