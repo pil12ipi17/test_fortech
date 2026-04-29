@@ -22,7 +22,12 @@ from services.task_service.app.tasks.models import (  # noqa: E402
     WorkerEventLog,
 )
 from services.task_service.app.audit.report import generate_audit_report  # noqa: E402
-from services.task_service.app.tasks.events import TaskEventType, build_event_envelope  # noqa: E402
+from services.task_service.app.tasks.events import (  # noqa: E402
+    EnrichmentEventType,
+    NotificationEventType,
+    TaskEventType,
+    build_event_envelope,
+)
 from services.task_service.app.notifications.dispatcher import dispatch_pending_notifications  # noqa: E402
 from services.task_service.app.notifications.handlers import handle_notification_event  # noqa: E402
 from services.task_service.app.tasks.outbox import create_outbox_event  # noqa: E402
@@ -69,6 +74,29 @@ def make_token(
     return jwt.encode(payload, "test-secret", algorithm="HS256")
 
 
+
+def test_stage7_event_contract_envelopes_keep_trace_metadata():
+    enriched = build_event_envelope(
+        event_type=EnrichmentEventType.TASK_ENRICHED,
+        producer="enrichment-service",
+        correlation_id="correlation-stage-7",
+        payload={"task_id": "task-stage-7", "metadata": {"deadline_bucket": "due_soon"}},
+    )
+    sent = build_event_envelope(
+        event_type=NotificationEventType.SENT,
+        producer="notification-worker",
+        correlation_id=enriched["correlation_id"],
+        payload={"task_id": "task-stage-7", "recipient_user_id": "user-stage-7"},
+    )
+
+    assert enriched["event_type"] == "task.enriched"
+    assert enriched["version"] == 1
+    assert enriched["producer"] == "enrichment-service"
+    assert enriched["correlation_id"] == "correlation-stage-7"
+    assert sent["event_type"] == "notification.sent"
+    assert sent["version"] == 1
+    assert sent["producer"] == "notification-worker"
+    assert sent["correlation_id"] == enriched["correlation_id"]
 def test_worker_event_claim_is_idempotent_per_consumer():
     db = SessionLocal()
     try:

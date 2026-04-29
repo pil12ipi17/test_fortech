@@ -11,6 +11,7 @@ logging.basicConfig(
 
 QUEUE_NAME = "notifications.task-events"
 CONSUMER_NAME = "notification-worker"
+BINDING_KEYS = ("task.*",)
 
 
 if __name__ == "__main__":
@@ -19,5 +20,6 @@ if __name__ == "__main__":
             consumer_name=CONSUMER_NAME,
             queue_name=QUEUE_NAME,
             event_handler=handle_notification_event,
+            binding_keys=BINDING_KEYS,
         )
     )

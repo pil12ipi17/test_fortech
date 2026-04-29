@@ -14,7 +14,7 @@ from .worker_store import add_worker_event_log, claim_event_for_processing, reco
 
 logger = logging.getLogger("task-event-worker")
 
-TASK_EVENTS_BINDING_KEY = "task.*"
+DEFAULT_BINDING_KEYS = ("task.*",)
 RETRY_HEADER = "x-retry-count"
 EventHandler = Callable[[Session, dict], str]
 
@@ -71,7 +71,7 @@ def _save_worker_error(
         db.close()
 
 
-async def _create_queue(*, queue_name: str):
+async def _create_queue(*, queue_name: str, binding_keys: tuple[str, ...]):
     settings = get_settings()
     rabbitmq = build_rabbitmq_config(settings)
     connection = await aio_pika.connect_robust(rabbitmq.url)
@@ -98,7 +98,8 @@ async def _create_queue(*, queue_name: str):
             "x-dead-letter-routing-key": dlq_name,
         },
     )
-    await queue.bind(exchange, routing_key=TASK_EVENTS_BINDING_KEY)
+    for binding_key in binding_keys:
+        await queue.bind(exchange, routing_key=binding_key)
     return connection, channel, exchange, queue
 
 
@@ -127,10 +128,11 @@ async def run_task_event_consumer(
     consumer_name: str,
     queue_name: str,
     event_handler: EventHandler,
+    binding_keys: tuple[str, ...] = DEFAULT_BINDING_KEYS,
 ) -> None:
     settings = get_settings()
-    connection, channel, exchange, queue = await _create_queue(queue_name=queue_name)
-    logger.info("Worker started consumer=%s queue=%s", consumer_name, queue_name)
+    connection, channel, exchange, queue = await _create_queue(queue_name=queue_name, binding_keys=binding_keys)
+    logger.info("Worker started consumer=%s queue=%s binding_keys=%s", consumer_name, queue_name, binding_keys)
 
     try:
         async with queue.iterator() as queue_iter:

@@ -14,6 +14,7 @@ logging.basicConfig(
 
 QUEUE_NAME = "audit.task-events"
 CONSUMER_NAME = "audit-worker"
+BINDING_KEYS = ("task.*",)
 
 
 def handle_audit_event(db: Session, envelope: dict) -> str:
@@ -35,5 +36,6 @@ if __name__ == "__main__":
             consumer_name=CONSUMER_NAME,
             queue_name=QUEUE_NAME,
             event_handler=handle_audit_event,
+            binding_keys=BINDING_KEYS,
         )
     )
