@@ -480,6 +480,150 @@ order by created_at desc
 limit 10;
 ```
 
+## Stage 7: event chain и ручная проверка
+
+Stage 7 расширяет RabbitMQ-контур до полноценной цепочки событий. API по-прежнему не ждет фоновые процессы: `task-service` только фиксирует бизнес-изменение и пишет событие в `outbox_events`, а дальнейшая обработка идет асинхронно через RabbitMQ, worker-ы и cron-процессы.
+
+Основная цепочка:
+1. `task-service` создает или меняет задачу и пишет `task.created` или `task.status_changed` в `outbox_events`.
+2. `outbox-publisher` публикует pending-события в RabbitMQ exchange `tasks.events`.
+3. `enrichment-service` читает `task.created` и `task.status_changed`, добавляет metadata и пишет новое событие `task.enriched` в outbox.
+4. `outbox-publisher` публикует `task.enriched` в RabbitMQ.
+5. `notification-worker` читает `task.enriched` и создает pending-запись в `notification_deliveries`.
+6. `notification-cron` отправляет pending-уведомление через `MockEmailSender` и после успешной отправки пишет `notification.sent` в outbox.
+7. `audit-worker` слушает `task.*` и `notification.*`, фиксирует обработку в worker-таблицах и обновляет CSV-отчет.
+
+Контракты событий используют общий envelope:
+- `event_id` - уникальный id события
+- `event_type` - тип события, например `task.created`, `task.enriched`, `notification.sent`
+- `version` - версия контракта события
+- `occurred_at` - время создания события
+- `producer` - сервис, который создал событие
+- `correlation_id` - общий id цепочки для трассировки
+- `payload` - бизнес-данные события
+
+Новые события stage 7:
+- `task.enriched` - результат обработки исходного task-события в `enrichment-service`
+- `notification.sent` - факт успешной отправки уведомления через `notification-cron`
+
+Новые и обновленные компоненты:
+- `enrichment-service` - consumer для `task.created` и `task.status_changed`
+- `notification-worker` - теперь слушает `task.enriched`, а не сырые `task.*`
+- `notification-cron` - после успешной отправки публикует `notification.sent` через outbox
+- `audit-worker` - слушает `task.*` и `notification.*`
+- `GET /api/v1/events/metrics` - admin-only endpoint с метриками event pipeline
+
+Ручная проверка stage 7:
+1. Запустить стенд:
+
+```bash
+docker compose up --build -d
+```
+
+2. Открыть приложение:
+
+```text
+http://localhost/
+```
+
+3. Залогиниться под пользователем с доступом к задачам и создать новую задачу через frontend или API.
+
+4. Подождать несколько секунд, чтобы `outbox-publisher`, `enrichment-service`, `notification-worker`, `notification-cron` и `audit-worker` успели обработать цепочку.
+
+5. Проверить в `task_db`, что появились события цепочки:
+
+```sql
+select event_type, status, producer, correlation_id, created_at, published_at
+from outbox_events
+where event_type in ('task.created', 'task.status_changed', 'task.enriched', 'notification.sent')
+order by created_at desc
+limit 20;
+```
+
+Ожидаемый результат: для одной цепочки должны быть видны исходное task-событие, затем `task.enriched`, затем `notification.sent`. У связанных событий должен совпадать `correlation_id`.
+
+6. Проверить enrichment-результат:
+
+```sql
+select source_event_type, task_id, correlation_id, metadata_json, created_at
+from task_enrichments
+order by created_at desc
+limit 10;
+```
+
+7. Проверить уведомления:
+
+```sql
+select event_type, task_id, recipient_email, status, correlation_id, sent_at
+from notification_deliveries
+order by sent_at desc nulls last
+limit 10;
+```
+
+Ожидаемый результат: после работы `notification-cron` статус должен стать `success`, а `sent_at` должен быть заполнен.
+
+8. Если не хочется ждать cron-интервал, можно запустить отправку уведомлений вручную:
+
+```bash
+docker compose run --rm notification-cron python -m app.notifications.cron --once
+```
+
+9. Проверить worker trace:
+
+```sql
+select consumer_name, event_type, correlation_id, note, created_at
+from worker_event_logs
+order by created_at desc
+limit 20;
+```
+
+10. Проверить idempotency consumers:
+
+```sql
+select consumer_name, event_type, correlation_id, processed_at
+from processed_events
+order by processed_at desc
+limit 20;
+```
+
+11. Проверить ошибки и retry/DLQ-следы:
+
+```sql
+select consumer_name, event_type, correlation_id, error_type, error_message, retry_count, created_at
+from worker_errors
+order by created_at desc
+limit 20;
+```
+
+12. Проверить метрики pipeline через API. Нужен access token admin-пользователя:
+
+```bash
+curl -H "Authorization: Bearer <ADMIN_ACCESS_TOKEN>" http://localhost/api/v1/events/metrics
+```
+
+Endpoint возвращает:
+- `outbox.by_status`
+- `outbox.by_event_type`
+- `outbox.pending_lag_seconds`
+- `workers.processed_by_consumer`
+- `workers.logs_by_event_type`
+- `workers.errors_by_consumer`
+- `workers.retry_count`
+- `workers.dlq_approx_count`
+
+13. Проверить CSV audit report:
+
+```bash
+docker compose run --rm audit-report-cron python -m app.audit.report_cron --once
+```
+
+Файл создается или обновляется здесь:
+
+```text
+reports/audit_report.csv
+```
+
+В отчете должны быть метрики не только `task.created`, `task.status_changed`, `task.deleted`, но и stage 7 события `task.enriched` и `notification.sent`.
 ## Тесты
 
 Запуск тестов:
