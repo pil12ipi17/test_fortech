@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from .sender import EmailMessage
 from .store import add_notification_delivery, build_mock_recipient_email
 
-SUPPORTED_EVENTS = {"task.created", "task.status_changed"}
+SUPPORTED_EVENTS = {"task.enriched"}
 
 
 def build_notification_email(envelope: dict) -> tuple[EmailMessage, str | None, str | None] | None:
@@ -12,8 +12,13 @@ def build_notification_email(envelope: dict) -> tuple[EmailMessage, str | None, 
     task_id = payload.get("task_id")
     recipient_user_id = payload.get("assignee_id")
     recipient_email = build_mock_recipient_email(recipient_user_id)
+    source_event_type = payload.get("source_event_type")
+    metadata = payload.get("metadata") or {}
 
-    if event_type == "task.created":
+    if event_type != "task.enriched":
+        return None
+
+    if source_event_type == "task.created":
         title = payload.get("title") or task_id
         message = EmailMessage(
             recipient=recipient_email,
@@ -23,20 +28,20 @@ def build_notification_email(envelope: dict) -> tuple[EmailMessage, str | None, 
                 f"Task ID: {task_id}\n"
                 f"Title: {title}\n"
                 f"Priority: {payload.get('priority')}\n"
+                f"Deadline bucket: {metadata.get('deadline_bucket')}\n"
             ),
         )
         return message, task_id, recipient_user_id
 
-    if event_type == "task.status_changed":
+    if source_event_type == "task.status_changed":
         message = EmailMessage(
             recipient=recipient_email,
             subject=f"Task status changed: {task_id}",
             body=(
                 f"Task status was changed.\n"
                 f"Task ID: {task_id}\n"
-                f"From: {payload.get('from_status')}\n"
-                f"To: {payload.get('to_status')}\n"
-                f"Comment: {payload.get('comment') or '-'}\n"
+                f"New status: {payload.get('status') or '-'}\n"
+                f"Deadline bucket: {metadata.get('deadline_bucket')}\n"
             ),
         )
         return message, task_id, recipient_user_id
@@ -60,6 +65,7 @@ def handle_notification_event(db: Session, envelope: dict) -> str:
         event_type=event_type,
         task_id=task_id,
         recipient_user_id=recipient_user_id,
+        correlation_id=str(envelope.get("correlation_id") or ""),
         message=message,
     )
     return f"Notification queued for cron delivery to={message.recipient} event_type={event_type}"

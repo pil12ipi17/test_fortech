@@ -24,6 +24,7 @@ def add_notification_delivery(
     event_type: str,
     task_id: str | None,
     recipient_user_id: str | None,
+    correlation_id: str | None,
     message: EmailMessage,
 ) -> NotificationDelivery:
     delivery = NotificationDelivery(
@@ -31,6 +32,7 @@ def add_notification_delivery(
         event_type=event_type,
         task_id=task_id,
         recipient_user_id=recipient_user_id,
+        correlation_id=correlation_id,
         recipient_email=message.recipient,
         subject=message.subject,
         body=message.body,

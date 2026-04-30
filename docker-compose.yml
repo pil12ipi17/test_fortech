@@ -148,6 +148,27 @@ services:
       task-service:
         condition: service_healthy
 
+  enrichment-service:
+    build:
+      context: .
+      dockerfile: services/task_service/Dockerfile
+    command: ["python", "-m", "app.enrichment.worker"]
+    environment:
+      TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
+      TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
+      TASK_RABBITMQ_URL: ${TASK_RABBITMQ_URL:-amqp://task_user:task_password@rabbitmq:5672/task-system}
+      TASK_RABBITMQ_TASKS_EXCHANGE: ${TASK_RABBITMQ_TASKS_EXCHANGE:-tasks.events}
+      TASK_WORKER_MAX_RETRY_ATTEMPTS: ${TASK_WORKER_MAX_RETRY_ATTEMPTS:-3}
+      TASK_WORKER_RETRY_BACKOFF_BASE_SECONDS: ${TASK_WORKER_RETRY_BACKOFF_BASE_SECONDS:-1}
+      TASK_WORKER_RETRY_BACKOFF_MAX_SECONDS: ${TASK_WORKER_RETRY_BACKOFF_MAX_SECONDS:-10}
+    depends_on:
+      task-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      task-service:
+        condition: service_healthy
+
   notification-cron:
     build:
       context: .

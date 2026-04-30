@@ -17,6 +17,7 @@ from services.task_service.app.tasks.models import (  # noqa: E402
     OutboxEvent,
     ProcessedEvent,
     Task,
+    TaskEnrichment,
     TaskStatusHistory,
     WorkerError,
     WorkerEventLog,
@@ -29,6 +30,7 @@ from services.task_service.app.tasks.events import (  # noqa: E402
     build_event_envelope,
 )
 from services.task_service.app.notifications.dispatcher import dispatch_pending_notifications  # noqa: E402
+from services.task_service.app.enrichment.handlers import handle_enrichment_event  # noqa: E402
 from services.task_service.app.notifications.handlers import handle_notification_event  # noqa: E402
 from services.task_service.app.tasks.outbox import create_outbox_event  # noqa: E402
 from services.task_service.app.messaging.worker_store import claim_event_for_processing, record_worker_error  # noqa: E402
@@ -44,6 +46,7 @@ def clear_task_tables():
     try:
         db.query(AuditLog).delete()
         db.query(NotificationDelivery).delete()
+        db.query(TaskEnrichment).delete()
         db.query(WorkerError).delete()
         db.query(WorkerEventLog).delete()
         db.query(ProcessedEvent).delete()
@@ -97,6 +100,40 @@ def test_stage7_event_contract_envelopes_keep_trace_metadata():
     assert sent["version"] == 1
     assert sent["producer"] == "notification-worker"
     assert sent["correlation_id"] == enriched["correlation_id"]
+
+def test_enrichment_worker_creates_enrichment_and_outbox_event():
+    envelope = build_event_envelope(
+        event_type=TaskEventType.CREATED,
+        correlation_id="correlation-enrichment-1",
+        payload={
+            "task_id": "task-enrichment-1",
+            "title": "Enrich me",
+            "assignee_id": "user-enrichment-1",
+            "team_id": "team-enrichment-1",
+            "priority": "high",
+            "deadline": "2026-05-01T10:00:00Z",
+        },
+    )
+    db = SessionLocal()
+    try:
+        note = handle_enrichment_event(db, envelope)
+        db.commit()
+
+        enrichment = db.query(TaskEnrichment).one()
+        outbox_event = db.query(OutboxEvent).filter(OutboxEvent.event_type == "task.enriched").one()
+        assert enrichment.source_event_id == envelope["event_id"]
+        assert enrichment.source_event_type == "task.created"
+        assert enrichment.task_id == "task-enrichment-1"
+        assert enrichment.correlation_id == envelope["correlation_id"]
+        assert '"is_high_priority": true' in enrichment.metadata_json
+        assert outbox_event.producer == "enrichment-service"
+        assert outbox_event.correlation_id == envelope["correlation_id"]
+        assert '"source_event_type":"task.created"' in outbox_event.payload_json
+        assert "Enriched task_id=task-enrichment-1" in note
+    finally:
+        db.close()
+
+
 def test_worker_event_claim_is_idempotent_per_consumer():
     db = SessionLocal()
     try:
@@ -133,12 +170,17 @@ def test_worker_event_claim_is_idempotent_per_consumer():
 
 def test_notification_worker_queues_delivery_for_cron():
     envelope = build_event_envelope(
-        event_type=TaskEventType.CREATED,
+        event_type=EnrichmentEventType.TASK_ENRICHED,
+        correlation_id="correlation-notification-1",
+        producer="enrichment-service",
         payload={
             "task_id": "task-notification-1",
+            "source_event_id": "source-task-event-1",
+            "source_event_type": "task.created",
             "assignee_id": "user-notification-1",
             "title": "Notify assignee",
             "priority": "high",
+            "metadata": {"deadline_bucket": "later"},
         },
     )
     db = SessionLocal()
@@ -148,9 +190,10 @@ def test_notification_worker_queues_delivery_for_cron():
 
         delivery = db.query(NotificationDelivery).one()
         assert delivery.event_id == envelope["event_id"]
-        assert delivery.event_type == "task.created"
+        assert delivery.event_type == "task.enriched"
         assert delivery.task_id == "task-notification-1"
         assert delivery.recipient_user_id == "user-notification-1"
+        assert delivery.correlation_id == envelope["correlation_id"]
         assert delivery.recipient_email == "user-user-notification-1@example.local"
         assert delivery.status == "pending"
         assert delivery.sent_at is None
@@ -159,14 +202,19 @@ def test_notification_worker_queues_delivery_for_cron():
         db.close()
 
 
-def test_notification_cron_dispatches_pending_delivery():
+def test_notification_cron_dispatches_pending_delivery_and_publishes_sent_event():
     envelope = build_event_envelope(
-        event_type=TaskEventType.CREATED,
+        event_type=EnrichmentEventType.TASK_ENRICHED,
+        correlation_id="correlation-notification-cron-1",
+        producer="enrichment-service",
         payload={
             "task_id": "task-notification-cron-1",
+            "source_event_id": "source-task-event-cron-1",
+            "source_event_type": "task.created",
             "assignee_id": "user-notification-cron-1",
             "title": "Cron delivery",
             "priority": "medium",
+            "metadata": {"deadline_bucket": "no_deadline"},
         },
     )
     db = SessionLocal()
@@ -178,12 +226,17 @@ def test_notification_cron_dispatches_pending_delivery():
         db.commit()
 
         delivery = db.query(NotificationDelivery).one()
+        sent_event = db.query(OutboxEvent).filter(OutboxEvent.event_type == "notification.sent").one()
         assert result == {"selected": 1, "sent": 1, "failed": 0}
         assert delivery.status == "success"
         assert delivery.sent_at is not None
+        assert sent_event.producer == "notification-service"
+        assert sent_event.aggregate_type == "notification"
+        assert sent_event.aggregate_id == delivery.id
+        assert sent_event.correlation_id == envelope["correlation_id"]
+        assert '"source_event_type":"task.enriched"' in sent_event.payload_json
     finally:
         db.close()
-
 
 def test_audit_report_csv_contains_task_metrics_and_errors():
     envelope = build_event_envelope(

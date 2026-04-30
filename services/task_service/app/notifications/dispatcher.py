@@ -1,7 +1,10 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..messaging.worker_store import record_worker_error
+from ..tasks.events import NotificationEventType, build_event_envelope
 from ..tasks.models import NotificationDelivery
+from ..tasks.outbox import create_outbox_event
 from .sender import EmailMessage, EmailSender, EmailSendResult, MockEmailSender
 from .store import (
     DELIVERY_FAILED,
@@ -9,9 +12,9 @@ from .store import (
     mark_notification_delivery_sent,
     serialize_notification_context,
 )
-from ..messaging.worker_store import record_worker_error
 
 DISPATCHABLE_STATUSES = (DELIVERY_PENDING, DELIVERY_FAILED)
+NOTIFICATION_PRODUCER = "notification-service"
 
 
 def _message_from_delivery(delivery: NotificationDelivery) -> EmailMessage:
@@ -19,6 +22,22 @@ def _message_from_delivery(delivery: NotificationDelivery) -> EmailMessage:
         recipient=delivery.recipient_email,
         subject=delivery.subject,
         body=delivery.body,
+    )
+
+
+def _build_sent_event(delivery: NotificationDelivery) -> dict:
+    return build_event_envelope(
+        event_type=NotificationEventType.SENT,
+        producer=NOTIFICATION_PRODUCER,
+        correlation_id=delivery.correlation_id,
+        payload={
+            "delivery_id": delivery.id,
+            "task_id": delivery.task_id,
+            "recipient_user_id": delivery.recipient_user_id,
+            "recipient_email": delivery.recipient_email,
+            "source_event_id": delivery.event_id,
+            "source_event_type": delivery.event_type,
+        },
     )
 
 
@@ -50,6 +69,14 @@ def dispatch_pending_notifications(
         mark_notification_delivery_sent(delivery, result)
         if result.success:
             sent += 1
+            sent_envelope = _build_sent_event(delivery)
+            db.add(
+                create_outbox_event(
+                    envelope=sent_envelope,
+                    aggregate_type="notification",
+                    aggregate_id=delivery.id,
+                )
+            )
             continue
 
         failed += 1
@@ -58,7 +85,7 @@ def dispatch_pending_notifications(
             consumer_name="notification-cron",
             event_id=delivery.event_id,
             event_type=delivery.event_type,
-            correlation_id=None,
+            correlation_id=delivery.correlation_id,
             error_type="NotificationSendFailed",
             error_message=result.error_message or "Notification sender returned failure",
             retry_count=0,

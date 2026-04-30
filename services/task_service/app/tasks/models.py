@@ -168,6 +168,7 @@ class NotificationDelivery(Base):
     event_type: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     task_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
     recipient_user_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     recipient_email: Mapped[str] = mapped_column(String(255), nullable=False)
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False)
@@ -188,6 +189,24 @@ class WorkerError(Base):
     error_message: Mapped[str] = mapped_column(Text, nullable=False)
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     payload_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+        index=True,
+    )
+
+
+class TaskEnrichment(Base):
+    __tablename__ = "task_enrichments"
+    __table_args__ = (UniqueConstraint("source_event_id", name="uq_task_enrichments_source_event"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    source_event_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    source_event_type: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    task_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    correlation_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    metadata_json: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
