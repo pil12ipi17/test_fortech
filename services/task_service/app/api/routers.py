@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from math import ceil
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
@@ -13,7 +13,7 @@ from ..audit.request_audit import add_audit_log
 from ..tasks.events import TaskEventType, build_event_envelope
 from ..core.idempotency import compute_request_hash, create_idempotency_record, maybe_replay_idempotent_response
 from ..core.db import get_db
-from ..tasks.models import Task, TaskPriority, TaskStatus, TaskStatusHistory
+from ..tasks.models import OutboxEvent, ProcessedEvent, Task, TaskPriority, TaskStatus, TaskStatusHistory, WorkerError, WorkerEventLog
 from ..tasks.outbox import create_outbox_event
 from .schemas import (
     CurrentUser,
@@ -41,6 +41,18 @@ MAX_PAGE_SIZE = 100
 CREATE_TASK_OPERATION = "create_task"
 CHANGE_TASK_STATUS_OPERATION = "change_task_status"
 ADMIN_ROLE = "admin"
+
+
+def _datetime_age_seconds(value: datetime | None) -> int | None:
+    if value is None:
+        return None
+    normalized = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return max(0, int((datetime.now(timezone.utc) - normalized).total_seconds()))
+
+
+def _count_grouped_by(db: Session, column) -> dict[str, int]:
+    rows = db.execute(select(column, func.count()).group_by(column)).all()
+    return {str(key): int(count) for key, count in rows}
 
 ALLOWED_STATUS_TRANSITIONS = {
     TaskStatus.TODO: {TaskStatus.IN_PROGRESS, TaskStatus.CANCELLED},
@@ -278,6 +290,39 @@ def generate_audit_report_endpoint(
         "size_bytes": output_path.stat().st_size,
     }
 
+
+
+@router.get("/events/metrics", tags=["events"])
+def get_event_pipeline_metrics(
+    current_user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+):
+    if ADMIN_ROLE not in current_user.roles:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Event metrics are forbidden")
+
+    oldest_pending_created_at = db.scalar(
+        select(func.min(OutboxEvent.created_at)).where(OutboxEvent.status == "pending")
+    )
+    dlq_approx_count = db.scalar(
+        select(func.count()).where(WorkerError.retry_count >= settings.worker_max_retry_attempts)
+    ) or 0
+    retry_count = db.scalar(select(func.coalesce(func.sum(WorkerError.retry_count), 0))) or 0
+
+    return {
+        "outbox": {
+            "by_status": _count_grouped_by(db, OutboxEvent.status),
+            "by_event_type": _count_grouped_by(db, OutboxEvent.event_type),
+            "pending_lag_seconds": _datetime_age_seconds(oldest_pending_created_at),
+        },
+        "workers": {
+            "processed_by_consumer": _count_grouped_by(db, ProcessedEvent.consumer_name),
+            "logs_by_event_type": _count_grouped_by(db, WorkerEventLog.event_type),
+            "errors_by_consumer": _count_grouped_by(db, WorkerError.consumer_name),
+            "retry_count": int(retry_count),
+            "dlq_approx_count": int(dlq_approx_count),
+        },
+    }
 
 @router.get("/tasks/{task_id}", response_model=TaskResponse)
 def get_task(

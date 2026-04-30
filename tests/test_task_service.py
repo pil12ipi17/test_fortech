@@ -603,6 +603,65 @@ def test_idempotency_replays_create_and_status_change_without_duplicate_audit():
         db.close()
 
 
+
+def test_event_metrics_endpoint_requires_admin_and_returns_pipeline_counts():
+    user_token = make_token("metrics-user-1", "metrics-user@example.com", roles=["user"], team_ids=[])
+    admin_token = make_token("metrics-admin-1", "metrics-admin@example.com", roles=["admin"], team_ids=[])
+    created = build_event_envelope(
+        event_type=TaskEventType.CREATED,
+        correlation_id="correlation-metrics-1",
+        payload={"task_id": "task-metrics-1"},
+    )
+    sent = build_event_envelope(
+        event_type=NotificationEventType.SENT,
+        producer="notification-service",
+        correlation_id=created["correlation_id"],
+        payload={"task_id": "task-metrics-1"},
+    )
+    db = SessionLocal()
+    try:
+        db.add(create_outbox_event(envelope=created, aggregate_type="task", aggregate_id="task-metrics-1"))
+        sent_outbox = create_outbox_event(envelope=sent, aggregate_type="notification", aggregate_id="delivery-metrics-1")
+        sent_outbox.status = "published"
+        db.add(sent_outbox)
+        claim_event_for_processing(
+            db=db,
+            event_id=created["event_id"],
+            consumer_name="enrichment-service",
+            event_type=created["event_type"],
+            correlation_id=created["correlation_id"],
+        )
+        record_worker_error(
+            db=db,
+            consumer_name="notification-worker",
+            event_id=sent["event_id"],
+            event_type=sent["event_type"],
+            correlation_id=sent["correlation_id"],
+            payload=sent,
+            error=RuntimeError("metrics retry"),
+            retry_count=3,
+        )
+        db.commit()
+
+        with TestClient(app) as client:
+            forbidden = client.get("/events/metrics", headers={"Authorization": f"Bearer {user_token}"})
+            response = client.get("/events/metrics", headers={"Authorization": f"Bearer {admin_token}"})
+
+        assert forbidden.status_code == 403
+        assert response.status_code == 200
+        body = response.json()
+        assert body["outbox"]["by_status"]["pending"] == 1
+        assert body["outbox"]["by_status"]["published"] == 1
+        assert body["outbox"]["by_event_type"]["task.created"] == 1
+        assert body["outbox"]["by_event_type"]["notification.sent"] == 1
+        assert body["outbox"]["pending_lag_seconds"] >= 0
+        assert body["workers"]["processed_by_consumer"]["enrichment-service"] == 1
+        assert body["workers"]["errors_by_consumer"]["notification-worker"] == 1
+        assert body["workers"]["retry_count"] == 3
+        assert body["workers"]["dlq_approx_count"] == 1
+    finally:
+        db.close()
+
 def test_audit_report_endpoint_requires_admin_and_writes_csv():
     report_path = Path.cwd() / "test_endpoint_audit_report.csv"
     if report_path.exists():
