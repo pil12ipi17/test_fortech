@@ -14,20 +14,21 @@ logging.basicConfig(
 
 QUEUE_NAME = "audit.task-events"
 CONSUMER_NAME = "audit-worker"
-BINDING_KEYS = ("task.*",)
+BINDING_KEYS = ("task.*", "notification.*")
 
 
 def handle_audit_event(db: Session, envelope: dict) -> str:
     payload = envelope.get("payload") or {}
     event_type = envelope.get("event_type")
     task_id = payload.get("task_id")
+    correlation_id = envelope.get("correlation_id")
     settings = get_settings()
     output = generate_audit_report(
         db=db,
         output_path=settings.audit_report_path,
         auth_database_url=settings.auth_database_url,
     )
-    return f"Archived task event task_id={task_id} event_type={event_type}; report={output}"
+    return f"Archived event task_id={task_id} event_type={event_type} correlation_id={correlation_id}; report={output}"
 
 
 if __name__ == "__main__":

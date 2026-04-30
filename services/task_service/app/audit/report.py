@@ -8,10 +8,12 @@ from sqlalchemy.orm import Session
 from ..tasks.models import OutboxEvent, WorkerError
 
 REPORT_COLUMNS = ["date", "metric_name", "metric_value", "errors_count", "notes"]
-TASK_METRICS = {
+EVENT_METRICS = {
     "task.created": "task.created",
     "task.status_changed": "task.status_changed",
     "task.deleted": "task.deleted",
+    "task.enriched": "task.enriched",
+    "notification.sent": "notification.sent",
 }
 
 
@@ -19,15 +21,15 @@ def _date_key(value) -> str:
     return str(value)
 
 
-def _load_task_metrics(db: Session) -> dict[str, dict[str, int]]:
+def _load_event_metrics(db: Session) -> dict[str, dict[str, int]]:
     grouped: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     rows = db.execute(
         select(func.date(OutboxEvent.created_at), OutboxEvent.event_type, func.count())
-        .where(OutboxEvent.event_type.in_(TASK_METRICS.keys()))
+        .where(OutboxEvent.event_type.in_(EVENT_METRICS.keys()))
         .group_by(func.date(OutboxEvent.created_at), OutboxEvent.event_type)
     ).all()
     for date_value, event_type, count in rows:
-        grouped[_date_key(date_value)][TASK_METRICS[event_type]] = int(count)
+        grouped[_date_key(date_value)][EVENT_METRICS[event_type]] = int(count)
     return grouped
 
 
@@ -59,10 +61,10 @@ def generate_audit_report(
     output_path: str,
     auth_database_url: str | None = None,
 ) -> Path:
-    task_metrics = _load_task_metrics(db)
+    event_metrics = _load_event_metrics(db)
     error_counts = _load_error_counts(db)
     login_metrics = _load_login_metrics(auth_database_url)
-    dates = sorted(set(task_metrics) | set(error_counts) | set(login_metrics))
+    dates = sorted(set(event_metrics) | set(error_counts) | set(login_metrics))
 
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -70,8 +72,8 @@ def generate_audit_report(
     rows: list[dict[str, str | int]] = []
     for date_value in dates:
         errors_count = error_counts.get(date_value, 0)
-        metrics_for_date = task_metrics.get(date_value, {})
-        for metric_name in TASK_METRICS.values():
+        metrics_for_date = event_metrics.get(date_value, {})
+        for metric_name in EVENT_METRICS.values():
             rows.append(
                 {
                     "date": date_value,

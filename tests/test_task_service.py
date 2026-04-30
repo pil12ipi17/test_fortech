@@ -270,6 +270,36 @@ def test_audit_report_csv_contains_task_metrics_and_errors():
         db.close()
 
 
+
+def test_audit_report_csv_contains_stage7_event_chain_metrics():
+    enriched = build_event_envelope(
+        event_type=EnrichmentEventType.TASK_ENRICHED,
+        producer="enrichment-service",
+        correlation_id="correlation-audit-chain-1",
+        payload={"task_id": "task-audit-chain-1", "metadata": {"deadline_bucket": "later"}},
+    )
+    sent = build_event_envelope(
+        event_type=NotificationEventType.SENT,
+        producer="notification-service",
+        correlation_id=enriched["correlation_id"],
+        payload={"task_id": "task-audit-chain-1", "source_event_id": enriched["event_id"]},
+    )
+    db = SessionLocal()
+    try:
+        db.add(create_outbox_event(envelope=enriched, aggregate_type="task", aggregate_id="task-audit-chain-1"))
+        db.add(create_outbox_event(envelope=sent, aggregate_type="notification", aggregate_id="delivery-audit-chain-1"))
+        db.commit()
+
+        output = Path.cwd() / "test_stage7_audit_report.csv"
+        generated = generate_audit_report(db=db, output_path=str(output))
+        content = generated.read_text(encoding="utf-8")
+        assert "task.enriched,1,0,source=outbox_events" in content
+        assert "notification.sent,1,0,source=outbox_events" in content
+    finally:
+        if "output" in locals() and output.exists():
+            output.unlink()
+        db.close()
+
 def test_task_rbac_audit_readiness_and_error_format():
     owner_token = make_token("user-1", "owner@example.com", roles=["user"], team_ids=["team-1"])
     assignee_token = make_token("user-2", "assignee@example.com", roles=["user"], team_ids=["team-1"])
