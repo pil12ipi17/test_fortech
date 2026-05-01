@@ -9,6 +9,7 @@ DEFAULT_ERROR_CODES = {
     404: "not_found",
     409: "conflict",
     422: "validation_error",
+    429: "too_many_requests",
     500: "internal_error",
     503: "service_unavailable",
 }
@@ -20,6 +21,7 @@ DEFAULT_ERROR_MESSAGES = {
     404: "Resource not found",
     409: "Conflict",
     422: "Validation failed",
+    429: "Too many requests",
     500: "Internal server error",
     503: "Service unavailable",
 }

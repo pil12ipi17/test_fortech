@@ -1,278 +1,237 @@
 # Backend-система управления задачами
 
-Next-level реализация тестового задания на `FastAPI + PostgreSQL + Docker Compose`.
+Проект представляет собой учебную backend-систему управления задачами на `FastAPI`, разделенную на несколько сервисов и инфраструктурных компонентов. Локально система запускается через `Docker Compose` и включает backend, frontend, gateway, PostgreSQL, RabbitMQ, Redis и фоновые worker/cron-процессы.
 
-Проект теперь собран как интеграционный стенд из нескольких компонентов:
-- `auth-service` — пользователи, роли, команды, JWT, refresh/logout, audit auth-действий
-- `task-service` — задачи, lifecycle статусов, RBAC, фильтрация, идемпотентность, audit task-действий
-- `frontend` — тонкий web-клиент для проверки API-сценариев
-- `gateway (nginx)` — единая точка входа для frontend и backend
-- `rabbitmq` — брокер сообщений и база для event-driven контура этапов 4-5
-- `auth-db` и `task-db` — отдельные PostgreSQL базы данных
+Основной стек:
+- `FastAPI` для backend-сервисов
+- `PostgreSQL` для постоянного хранения данных
+- `RabbitMQ` для event-driven обработки событий задач
+- `Redis` для кэширования и rate limiting
+- `Nginx` как gateway и frontend-сервер
+- `Docker Compose` для локального стенда
+- `pytest` для автотестов
 
-## Что реализовано
+## Состав системы
 
-### Auth-service
-- регистрация и логин
-- `access_token + refresh_token`
-- `POST /auth/refresh`
-- `POST /auth/logout`
+Локальный стенд состоит из следующих контейнеров:
+- `auth-db` - PostgreSQL база пользователей, ролей, команд и auth-аудита
+- `task-db` - PostgreSQL база задач, outbox, worker-логов, уведомлений и audit-данных
+- `rabbitmq` - брокер сообщений для event-driven контура
+- `redis` - кэш и хранилище счетчиков rate limit
+- `auth-service` - сервис пользователей, авторизации, ролей и команд
+- `task-service` - сервис задач, RBAC, outbox, кэша и rate limiting write-операций
+- `outbox-publisher` - фоновый процесс публикации outbox-событий в RabbitMQ
+- `notification-worker` - consumer событий задач для создания уведомлений
+- `notification-cron` - cron-like процесс отправки pending-уведомлений
+- `audit-worker` - consumer событий задач для обновления audit-отчета
+- `audit-report-cron` - cron-like процесс периодической генерации CSV-отчета
+- `frontend` - легкий web-интерфейс для ручной проверки API
+- `gateway` - Nginx reverse proxy, единая точка входа в приложение
+
+## Архитектура запросов
+
+Основной пользовательский поток:
+1. Пользователь открывает `http://localhost/`.
+2. Запрос попадает в `gateway`.
+3. `gateway` отдает frontend или проксирует API-запросы в backend.
+4. Auth-запросы идут в `auth-service`.
+5. Запросы задач идут в `task-service`.
+6. `auth-service` работает со своей PostgreSQL базой `auth-db`.
+7. `task-service` работает со своей PostgreSQL базой `task-db`.
+8. `task-service` использует Redis для кэша чтения задач и лимитов write-запросов.
+9. После бизнес-изменений задач `task-service` пишет события в transactional outbox.
+10. `outbox-publisher` публикует события из outbox в RabbitMQ.
+11. `notification-worker` и `audit-worker` независимо обрабатывают события из RabbitMQ.
+
+Маршрутизация через gateway:
+- `/` -> `frontend`
+- `/api/v1/auth/*` -> `auth-service`
+- `/api/v1/users*` -> `auth-service`
+- `/api/v1/teams*` -> `auth-service`
+- `/api/v1/tasks*` -> `task-service`
+- `/health` -> healthcheck gateway
+- `/api/v1/health/auth` -> readiness auth-service
+- `/api/v1/health/task` -> readiness task-service
+
+## Auth-service
+
+`auth-service` отвечает за пользователей, роли, команды и авторизацию.
+
+Реализовано:
+- регистрация пользователя
+- login по email/password
+- выдача `access_token` и `refresh_token`
+- refresh access token
+- logout через отзыв refresh token
 - `GET /auth/me`
 - роли `user`, `teamlead`, `admin`
-- команды и membership пользователей
 - bootstrap первого администратора
-- аудит auth/admin-операций
+- создание пользователей администратором
+- обновление ролей пользователя
+- создание команд
+- добавление и удаление пользователей из команд
+- RBAC для admin/teamlead/user сценариев
+- audit auth/admin-действий
+- rate limiting для `POST /auth/login` через Redis
 
-### Task-service
-- CRUD задач
-- расширенная модель задачи:
-  - `owner_id`
-  - `assignee_id`
-  - `team_id`
-  - `priority`
-  - `deadline`
-- lifecycle статусов:
-  - `todo`
-  - `in_progress`
-  - `review`
-  - `done`
-  - `cancelled`
-- отдельный endpoint смены статуса
-- история переходов статусов
-- RBAC для `owner / assignee / teamlead / admin`
-- фильтрация, пагинация и сортировка списка задач
-- идемпотентность для создания задачи и смены статуса
-- аудит task-операций
+Rate limit логина:
+- ключ Redis: `rl:login:{ip}:{email}`
+- лимит по умолчанию: `5` попыток за `60` секунд
+- при превышении возвращается `429 Too Many Requests`
+- ответ содержит заголовок `Retry-After`
+- если Redis недоступен, login продолжает работать без rate limit
 
-### Frontend и интеграция
-- мини frontend для проверки API
-- логин пользователя
-- список задач с фильтрами
+## Task-service
+
+`task-service` отвечает за задачи, жизненный цикл задач, RBAC, audit, outbox, кэширование и rate limiting write-операций.
+
+Реализовано:
 - создание задачи
-- изменение статуса задачи
-- отображение ошибок API в понятном виде
-- refresh flow на стороне клиента
-- `nginx` как reverse proxy и единая точка входа
-- маршрутизация `/ -> frontend`, `/api/v1/* -> backend`
-- базовые security headers в gateway
-- `.env.example` для общих переменных окружения
+- получение списка задач
+- получение задачи по id
+- обновление задачи
+- смена статуса задачи
+- получение истории статусов задачи
+- удаление задачи
+- RBAC для `owner`, `assignee`, `teamlead`, `admin`
+- фильтрация, пагинация и сортировка списка задач
+- идемпотентность создания задачи через `Idempotency-Key`
+- идемпотентность смены статуса через `Idempotency-Key`
+- audit task-действий
+- transactional outbox для событий задач
+- Redis-кэш для `GET /tasks/{task_id}`
+- инвалидация кэша после write-операций
+- rate limiting для write-операций задач
 
-### Event-driven foundation
-- `RabbitMQ` добавлен в локальный стенд как инфраструктурная основа этапа 4
-- конфигурация подключения к брокеру вынесена в env
-- `task-service` уже знает настройки `RabbitMQ exchange`, чтобы дальше можно было вводить outbox и publisher без пересборки конфигурационного слоя
-- `task-service` фиксирует доменные события в `outbox_events`
-- отдельный `outbox-publisher` читает `pending` события из outbox и публикует их в `RabbitMQ`
-- отдельные `notification-worker` и `audit-worker` читают `task.*` события из своих очередей и ведут независимую обработку с защитой от дублей
+Поддерживаемые статусы задач:
+- `todo`
+- `in_progress`
+- `review`
+- `done`
+- `cancelled`
 
-## Архитектура
+Поддерживаемые переходы статусов:
+- `todo -> in_progress`
+- `todo -> cancelled`
+- `in_progress -> review`
+- `in_progress -> cancelled`
+- `review -> in_progress`
+- `review -> done`
+- `review -> cancelled`
 
-The local stand consists of 12 containers:
-- `auth-db`
-- `task-db`
-- `auth-service`
-- `task-service`
-- `rabbitmq`
-- `outbox-publisher`
-- `notification-worker`
-- `notification-cron`
-- `audit-worker`
-- `audit-report-cron`
-- `frontend`
-- `gateway`
+## Event-driven контур RabbitMQ
 
-### Поток запросов
-1. Пользователь открывает браузер и попадает в `gateway`
-2. `gateway` отдаёт frontend по маршруту `/`
-3. frontend отправляет API-запросы на `/api/v1/*`
-4. `gateway` проксирует:
-   - `/api/v1/auth/*`, `/api/v1/users*`, `/api/v1/teams*` -> `auth-service`
-   - `/api/v1/tasks*` -> `task-service`
-5. `task-service` использует `access_token` с `roles` и `team_ids` для локальной RBAC-проверки
+Для задач реализован event-driven контур на базе RabbitMQ и transactional outbox.
 
-## Структура репозитория
+Основной поток:
+1. `task-service` выполняет бизнес-операцию с задачей.
+2. В той же транзакции создается запись в `outbox_events`.
+3. `outbox-publisher` периодически читает `pending` события из outbox.
+4. Publisher публикует событие в RabbitMQ exchange `tasks.events`.
+5. RabbitMQ доставляет событие в очереди consumers.
+6. `notification-worker` и `audit-worker` обрабатывают событие независимо друг от друга.
+7. Worker-ы фиксируют обработку в `processed_events` и `worker_event_logs`.
 
-```text
-.
-├── docker-compose.yml
-├── .env.example
-├── gateway/
-│   └── nginx.conf
-├── frontend/
-│   ├── Dockerfile
-│   ├── nginx.conf
-│   └── static/
-├── requirements/
-├── shared/
-├── services/
-│   ├── auth_service/
-│   └── task_service/
-└── tests/
-```
+События задач:
+- `task.created`
+- `task.status_changed`
+- `task.deleted`
 
-## Запуск через Docker Compose
-
-Подготовить `.env`:
-
-```bash
-cp .env.example .env
-```
-
-Запуск стенда:
-
-```bash
-docker compose up --build -d
-```
-
-### Ожидаемые URL
-
-Единая точка входа:
-- `http://localhost/` — frontend
-- `http://localhost/health` — gateway health
-- `http://localhost/api/v1/health/auth` — readiness auth-service через gateway
-- `http://localhost/api/v1/health/task` — readiness task-service через gateway
-
-RabbitMQ:
-- `amqp://localhost:5672` — AMQP-подключение
-- `http://localhost:15672` — management UI
-
-Прямой доступ к БД:
-- `auth-db` -> `localhost:5433`
-- `task-db` -> `localhost:5434`
-
-## Базы данных
-
-### Auth DB
-- host: `localhost`
-- port: `5433`
-- db: `auth_db`
-- user: `auth_user`
-- password: `auth_password`
-
-### Task DB
-- host: `localhost`
-- port: `5434`
-- db: `task_db`
-- user: `task_user`
-- password: `task_password`
-
-### RabbitMQ
-- host: `localhost`
-- AMQP port: `5672`
-- management UI: `15672`
+RabbitMQ настройки:
+- AMQP URL: `amqp://task_user:task_password@rabbitmq:5672/task-system`
+- exchange: `tasks.events`
+- management UI: `http://localhost:15672`
 - user: `task_user`
 - password: `task_password`
 - vhost: `task-system`
 
-## Event-driven foundation (stage 4)
+Надежность обработки:
+- transactional outbox защищает от потери события после commit бизнес-данных
+- `processed_events` защищает consumers от повторной обработки одного и того же события
+- worker-ы используют retry с backoff
+- после превышения лимита retry сообщение уходит в DLQ
+- ошибки worker-ов сохраняются в `worker_errors`
 
-Сейчас в проекте уже подготовлен минимальный event-driven контур:
-- `task-service` создаёт transactional outbox события:
-  - `task.created`
-  - `task.status_changed`
-  - `task.deleted`
-- события пишутся в таблицу `outbox_events` в той же транзакции, что и бизнес-изменения
-- сервис `outbox-publisher` батчами читает `pending` записи из outbox и публикует их в exchange `tasks.events`
-- `notification-worker` читает очередь `notifications.task-events` и фиксирует свою обработку в `worker_event_logs`
-- `audit-worker` читает очередь `audit.task-events` и фиксирует свою обработку в `worker_event_logs`
-- таблица `processed_events` защищает consumers от повторной обработки одного и того же `event_id`
-- consumers используют bounded retry через header `x-retry-count`
-- после превышения `TASK_WORKER_MAX_RETRY_ATTEMPTS` сообщение уходит в DLQ:
-  - `notifications.task-events.dlq`
-  - `audit.task-events.dlq`
+## Уведомления и audit-отчет
 
-Это ещё не полный этап 4, но уже закрывает ключевые фундаменты:
-- RabbitMQ как часть стенда
-- transactional outbox как защита от потери события после commit бизнес-данных
-- outbox publisher
-- отдельные consumers
-- базовая идемпотентность consumers
-- retry/DLQ для ошибок обработки
+Stage 5 расширяет RabbitMQ worker foundation уведомлениями и отчетностью.
 
-Следующий слой ещё впереди:
-- более подробная наблюдаемость worker'ов
+Уведомления:
+- `notification-worker` читает события `task.created` и `task.status_changed`
+- worker формирует mock email subject/body
+- запись создается в таблице `notification_deliveries` со статусом `pending`
+- `notification-cron` периодически выбирает pending/failed уведомления
+- отправка выполняется через `MockEmailSender`
+- успешные отправки получают статус `success`
+- ошибки отправки фиксируются в `worker_errors`
 
+Audit reporting:
+- `audit-worker` обновляет CSV-отчет после обработки task events
+- `audit-report-cron` периодически пересобирает отчет через APScheduler
+- интервал задается через `TASK_AUDIT_REPORT_INTERVAL_SECONDS`
+- дефолтный интервал: `3600` секунд
+- ручной запуск доступен через `--once`
 
-## Notifications and audit reporting (stage 5)
-
-Stage 5 extends the RabbitMQ workers into a minimal notification and audit-reporting contour:
-- `notification-worker` handles `task.created` and `task.status_changed` events.
-- It builds a mock email subject/body and stores a `pending` delivery in `notification_deliveries`.
-- `notification-cron` is a separate cron-like container that periodically dispatches pending/failed deliveries through `MockEmailSender`.
-- `audit-worker` continues consuming task events and refreshes the CSV report after handled events.
-- `audit-report-cron` is a separate cron-like container that periodically regenerates `reports/audit_report.csv`.
-- Worker processing errors are stored in `worker_errors` and are included in the report as `errors_count`.
-- `processed_events` still provides consumer idempotency, so repeated RabbitMQ delivery does not duplicate final worker effects.
-
-The generated CSV report uses these columns:
+CSV-отчет создается здесь:
 
 ```text
-date,metric_name,metric_value,errors_count,notes
+reports/audit_report.csv
 ```
 
-Main metrics:
+Основные метрики отчета:
 - `task.created`
 - `task.status_changed`
 - `task.deleted`
 - `auth.login`
 - `worker.errors`
 
-The report is generated at:
-
-```text
-reports/audit_report.csv
-```
-
-Manual notification dispatch inside Docker:
+Ручной запуск отправки уведомлений:
 
 ```bash
 docker compose run --rm notification-cron python -m app.notifications.cron --once
 ```
 
-Manual report generation inside Docker:
+Ручная генерация audit-отчета:
 
 ```bash
 docker compose run --rm audit-report-cron python -m app.audit.report_cron --once
 ```
 
-Useful manual checks in `task_db`:
+## Redis-кэширование и rate limiting
 
-```sql
-select event_id, event_type, recipient_email, subject, status, sent_at
-from notification_deliveries
-order by sent_at desc
-limit 10;
-```
+Redis добавлен как дополнительный инфраструктурный компонент. Он используется для временных быстрых данных, но не является источником правды. Основные данные остаются в PostgreSQL.
 
-```sql
-select consumer_name, event_id, event_type, error_type, error_message, created_at
-from worker_errors
-order by created_at desc
-limit 10;
-```
+Реализовано:
+- контейнер `redis` в `docker-compose.yml`
+- healthcheck Redis через `redis-cli ping`
+- volume `redis_data`
+- Redis client для `auth-service`
+- Redis client для `task-service`
+- degraded mode: если Redis недоступен, API продолжает работать через PostgreSQL
+- кэширование `GET /api/v1/tasks/{task_id}`
+- инвалидация task cache после create/update/status/delete
+- rate limiting `POST /api/v1/auth/login`
+- rate limiting task write operations
 
-```sql
-select consumer_name, event_type, note, created_at
-from worker_event_logs
-order by created_at desc
-limit 10;
-```
+Кэш задач:
+- endpoint: `GET /api/v1/tasks/{task_id}`
+- ключи: `tasks:item:*`
+- ключ учитывает `user_id`, роли, команды и `task_id`
+- TTL задается через `TASK_TASK_CACHE_TTL_SECONDS`
+- дефолтный TTL: `90` секунд
+- после успешной write-операции удаляются ключи `tasks:*`
 
-## Миграции
+Rate limiting:
+- login key: `rl:login:{ip}:{email}`
+- task write key: `rl:tasks:write:{user_id}:{ip}`
+- login default: `5` запросов за `60` секунд
+- task write default: `30` запросов за `60` секунд
+- при превышении лимита API возвращает `429 Too Many Requests`
+- ответ содержит `Retry-After`
 
-У каждого сервиса свой Alembic-контур:
-- `services/auth_service/alembic.ini`
-- `services/task_service/alembic.ini`
+## API endpoints
 
-При старте контейнеров сервисы автоматически выполняют:
-
-```bash
-alembic upgrade head
-```
-
-## Основные API маршруты через gateway
-
-### Auth-service
+Auth-service через gateway:
 - `POST /api/v1/auth/register`
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/refresh`
@@ -286,7 +245,7 @@ alembic upgrade head
 - `POST /api/v1/teams/{team_id}/members`
 - `DELETE /api/v1/teams/{team_id}/members/{user_id}`
 
-### Task-service
+Task-service через gateway:
 - `POST /api/v1/tasks`
 - `GET /api/v1/tasks`
 - `GET /api/v1/tasks/{task_id}`
@@ -295,63 +254,259 @@ alembic upgrade head
 - `GET /api/v1/tasks/{task_id}/history`
 - `DELETE /api/v1/tasks/{task_id}`
 
-## RBAC
+Health endpoints:
+- `GET /health`
+- `GET /api/v1/health/auth`
+- `GET /api/v1/health/task`
 
-Используются роли:
-- `user`
-- `teamlead`
-- `admin`
+## Запуск проекта
 
-Базовые правила:
-- `user` работает со своими задачами и задачами, где он исполнитель
-- `teamlead` видит и изменяет задачи своей команды
-- `admin` управляет пользователями, ролями, командами и имеет полный доступ к задачам
+Подготовить `.env`:
 
-## Lifecycle задач
+```bash
+cp .env.example .env
+```
 
-Поддерживаемые статусы:
-- `todo`
-- `in_progress`
-- `review`
-- `done`
-- `cancelled`
+Запустить стенд:
 
-Поддерживаемые переходы:
-- `todo -> in_progress`
-- `todo -> cancelled`
-- `in_progress -> review`
-- `in_progress -> cancelled`
-- `review -> in_progress`
-- `review -> done`
-- `review -> cancelled`
+```bash
+docker compose up --build -d
+```
+
+Проверить контейнеры:
+
+```bash
+docker compose ps
+```
+
+Остановить стенд:
+
+```bash
+docker compose down
+```
+
+Остановить стенд с удалением volume-данных:
+
+```bash
+docker compose down -v
+```
+
+## Доступные URL
+
+Frontend и gateway:
+- `http://localhost/` - frontend
+- `http://localhost/health` - gateway health
+- `http://localhost/api/v1/health/auth` - readiness auth-service
+- `http://localhost/api/v1/health/task` - readiness task-service
+
+RabbitMQ:
+- `amqp://localhost:5672` - AMQP
+- `http://localhost:15672` - management UI
+- user: `task_user`
+- password: `task_password`
+
+Redis:
+- host внутри Docker: `redis`
+- port внутри Docker: `6379`
+- host с локальной машины: `localhost`
+- port с локальной машины: `6379`
+
+PostgreSQL:
+- `auth-db` доступен на `localhost:5433`
+- `task-db` доступен на `localhost:5434`
+
+## Переменные окружения
+
+Основные переменные:
+
+```env
+JWT_SHARED_SECRET=change-me-in-production
+RABBITMQ_DEFAULT_USER=task_user
+RABBITMQ_DEFAULT_PASS=task_password
+RABBITMQ_DEFAULT_VHOST=task-system
+TASK_RABBITMQ_URL=amqp://task_user:task_password@rabbitmq:5672/task-system
+TASK_RABBITMQ_TASKS_EXCHANGE=tasks.events
+TASK_OUTBOX_PUBLISH_BATCH_SIZE=50
+TASK_OUTBOX_PUBLISH_POLL_INTERVAL_SECONDS=2
+TASK_WORKER_MAX_RETRY_ATTEMPTS=3
+TASK_WORKER_RETRY_BACKOFF_BASE_SECONDS=1
+TASK_WORKER_RETRY_BACKOFF_MAX_SECONDS=10
+TASK_AUTH_DATABASE_URL=postgresql+psycopg://auth_user:auth_password@auth-db:5432/auth_db
+TASK_AUDIT_REPORT_PATH=/app/reports/audit_report.csv
+TASK_AUDIT_REPORT_INTERVAL_SECONDS=3600
+TASK_NOTIFICATION_DISPATCH_INTERVAL_SECONDS=60
+TASK_NOTIFICATION_DISPATCH_BATCH_SIZE=50
+AUTH_REDIS_URL=redis://redis:6379/0
+AUTH_LOGIN_RATE_LIMIT_REQUESTS=5
+AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS=60
+TASK_REDIS_URL=redis://redis:6379/0
+TASK_TASK_CACHE_TTL_SECONDS=90
+TASK_TASK_WRITE_RATE_LIMIT_REQUESTS=30
+TASK_TASK_WRITE_RATE_LIMIT_WINDOW_SECONDS=60
+```
+
+## Базы данных
+
+Auth DB:
+- host: `localhost`
+- port: `5433`
+- database: `auth_db`
+- user: `auth_user`
+- password: `auth_password`
+
+Task DB:
+- host: `localhost`
+- port: `5434`
+- database: `task_db`
+- user: `task_user`
+- password: `task_password`
+
+При старте сервисы автоматически применяют Alembic migrations:
+
+```bash
+alembic upgrade head
+```
+
+## Структура репозитория
+
+```text
+.
+|-- docker-compose.yml
+|-- .env.example
+|-- README.md
+|-- gateway/
+|   `-- nginx.conf
+|-- frontend/
+|   |-- Dockerfile
+|   |-- nginx.conf
+|   `-- static/
+|-- requirements/
+|   `-- base.txt
+|-- shared/
+|   |-- errors.py
+|   `-- rate_limit.py
+|-- services/
+|   |-- auth_service/
+|   `-- task_service/
+|       `-- app/
+|           |-- api/
+|           |-- audit/
+|           |-- cache/
+|           |-- core/
+|           |-- messaging/
+|           |-- notifications/
+|           `-- tasks/
+|-- reports/
+`-- tests/
+```
 
 ## Ручная проверка
 
-Сценарий ручной проверки сохранён в:
-- `docs/manual-test-scenario-next-level.md`
+Проверить Redis:
 
-Он покрывает:
-- auth flow
-- роли и команды
-- refresh/logout
-- задачи, RBAC и lifecycle
-- list API
-- идемпотентность
-- audit
+```bash
+docker compose exec redis redis-cli ping
+```
+
+Ожидаемый ответ:
+
+```text
+PONG
+```
+
+Проверить ключи task cache:
+
+```bash
+docker compose exec redis redis-cli --scan --pattern "tasks:*"
+```
+
+Проверить cache miss/cache hit:
+1. Запустить стенд.
+2. Залогиниться и получить access token.
+3. Создать задачу или выбрать существующую видимую задачу.
+4. Два раза вызвать `GET /api/v1/tasks/{task_id}` с одним и тем же токеном.
+5. Проверить логи:
+
+```bash
+docker compose logs task-service | grep -E "cache_miss|cache_hit|cache_invalidate"
+```
+
+Проверить инвалидацию:
+1. Вызвать `GET /api/v1/tasks/{task_id}`, чтобы задача попала в Redis.
+2. Выполнить `PATCH /api/v1/tasks/{task_id}`.
+3. Проверить, что ключи `tasks:*` удалились.
+
+Проверить login rate limit:
+1. Отправить больше 5 неверных login-запросов за 60 секунд.
+2. Проверить, что следующие ответы возвращают `429 Too Many Requests`.
+3. Проверить наличие заголовка `Retry-After`.
+
+Проверить task write rate limit:
+1. Для быстрой проверки временно уменьшить `TASK_TASK_WRITE_RATE_LIMIT_REQUESTS` в `.env`.
+2. Перезапустить `task-service`.
+3. Отправить больше write-запросов, чем разрешено лимитом.
+4. Проверить `429 Too Many Requests` и `Retry-After`.
+
+Проверить RabbitMQ UI:
+1. Открыть `http://localhost:15672`.
+2. Войти под `task_user / task_password`.
+3. Проверить exchange `tasks.events`.
+4. Проверить очереди `notifications.task-events`, `audit.task-events` и DLQ-очереди.
+
+Проверить уведомления в `task_db`:
+
+```sql
+select event_id, event_type, recipient_email, subject, status, sent_at
+from notification_deliveries
+order by sent_at desc
+limit 10;
+```
+
+Проверить ошибки worker-ов:
+
+```sql
+select consumer_name, event_id, event_type, error_type, error_message, created_at
+from worker_errors
+order by created_at desc
+limit 10;
+```
+
+Проверить worker logs:
+
+```sql
+select consumer_name, event_type, note, created_at
+from worker_event_logs
+order by created_at desc
+limit 10;
+```
 
 ## Тесты
 
-Запуск локально через виртуальное окружение:
+Запуск тестов:
 
 ```bash
 .\.venv\Scripts\python.exe -m pytest
 ```
 
 Текущее покрытие проверяет:
-- auth сценарии
+- auth flow
+- роли и команды
+- refresh/logout
 - task RBAC
-- list API
-- идемпотентность
-- audit
-- readiness
+- фильтрацию, пагинацию и сортировку задач
+- идемпотентность создания задачи
+- идемпотентность смены статуса
+- transactional outbox
+- worker idempotency
+- notification flow
+- audit CSV report
+- Redis cache invalidation
+- login rate limit
 - единый формат ошибок
+- readiness endpoints
+
+Актуальный локальный результат:
+
+```text
+10 passed
+```
