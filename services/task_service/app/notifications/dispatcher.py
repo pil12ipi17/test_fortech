@@ -10,6 +10,7 @@ from .store import (
     DELIVERY_FAILED,
     DELIVERY_PENDING,
     mark_notification_delivery_sent,
+    mark_notification_sent_event_published,
     serialize_notification_context,
 )
 
@@ -69,14 +70,16 @@ def dispatch_pending_notifications(
         mark_notification_delivery_sent(delivery, result)
         if result.success:
             sent += 1
-            sent_envelope = _build_sent_event(delivery)
-            db.add(
-                create_outbox_event(
-                    envelope=sent_envelope,
-                    aggregate_type="notification",
-                    aggregate_id=delivery.id,
+            if delivery.sent_event_published_at is None:
+                sent_envelope = _build_sent_event(delivery)
+                db.add(
+                    create_outbox_event(
+                        envelope=sent_envelope,
+                        aggregate_type="notification",
+                        aggregate_id=delivery.id,
+                    )
                 )
-            )
+                mark_notification_sent_event_published(delivery)
             continue
 
         failed += 1

@@ -175,6 +175,11 @@ class NotificationDelivery(Base):
     status: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    sent_event_published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
 
 
 class WorkerError(Base):

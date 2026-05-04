@@ -255,11 +255,51 @@ def test_notification_cron_dispatches_pending_delivery_and_publishes_sent_event(
         assert result == {"selected": 1, "sent": 1, "failed": 0}
         assert delivery.status == "success"
         assert delivery.sent_at is not None
+        assert delivery.sent_event_published_at is not None
         assert sent_event.producer == "notification-service"
         assert sent_event.aggregate_type == "notification"
         assert sent_event.aggregate_id == delivery.id
         assert sent_event.correlation_id == envelope["correlation_id"]
         assert '"source_event_type":"task.enriched"' in sent_event.payload_json
+    finally:
+        db.close()
+
+
+def test_notification_cron_does_not_publish_duplicate_sent_event():
+    envelope = build_event_envelope(
+        event_type=EnrichmentEventType.TASK_ENRICHED,
+        correlation_id="correlation-notification-dedupe-1",
+        producer="enrichment-service",
+        payload={
+            "task_id": "task-notification-dedupe-1",
+            "source_event_id": "source-task-event-dedupe-1",
+            "source_event_type": "task.created",
+            "assignee_id": "user-notification-dedupe-1",
+            "title": "Dedupe delivery",
+            "priority": "medium",
+            "metadata": {"deadline_bucket": "later"},
+        },
+    )
+    db = SessionLocal()
+    try:
+        handle_notification_event(db, envelope)
+        db.commit()
+
+        first_result = dispatch_pending_notifications(db=db)
+        db.commit()
+        delivery = db.query(NotificationDelivery).one()
+        first_published_at = delivery.sent_event_published_at
+
+        delivery.status = "failed"
+        db.commit()
+        second_result = dispatch_pending_notifications(db=db)
+        db.commit()
+
+        sent_events_count = db.query(OutboxEvent).filter(OutboxEvent.event_type == "notification.sent").count()
+        assert first_result == {"selected": 1, "sent": 1, "failed": 0}
+        assert second_result == {"selected": 1, "sent": 1, "failed": 0}
+        assert sent_events_count == 1
+        assert delivery.sent_event_published_at == first_published_at
     finally:
         db.close()
 

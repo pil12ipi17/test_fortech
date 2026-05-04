@@ -39,6 +39,7 @@ def add_notification_delivery(
         status=DELIVERY_PENDING,
         error_message=None,
         sent_at=None,
+        sent_event_published_at=None,
     )
     db.add(delivery)
     return delivery
@@ -48,6 +49,10 @@ def mark_notification_delivery_sent(delivery: NotificationDelivery, result: Emai
     delivery.status = DELIVERY_SUCCESS if result.success else DELIVERY_FAILED
     delivery.error_message = result.error_message
     delivery.sent_at = datetime.now(timezone.utc)
+
+
+def mark_notification_sent_event_published(delivery: NotificationDelivery) -> None:
+    delivery.sent_event_published_at = datetime.now(timezone.utc)
 
 
 def serialize_notification_context(payload: dict) -> str:
