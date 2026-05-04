@@ -134,6 +134,31 @@ def test_enrichment_worker_creates_enrichment_and_outbox_event():
         db.close()
 
 
+
+def test_enrichment_deadline_bucket_uses_event_occurred_at():
+    envelope = build_event_envelope(
+        event_type=TaskEventType.CREATED,
+        correlation_id="correlation-enrichment-replay-1",
+        payload={
+            "task_id": "task-enrichment-replay-1",
+            "assignee_id": "user-enrichment-replay-1",
+            "priority": "medium",
+            "deadline": "2026-01-03T12:00:00Z",
+        },
+    )
+    envelope["occurred_at"] = "2026-01-01T12:00:00+00:00"
+    db = SessionLocal()
+    try:
+        handle_enrichment_event(db, envelope)
+        db.commit()
+
+        enrichment = db.query(TaskEnrichment).one()
+        outbox_event = db.query(OutboxEvent).filter(OutboxEvent.event_type == "task.enriched").one()
+        assert '"deadline_bucket": "later"' in enrichment.metadata_json
+        assert '"metadata_reference_time":"2026-01-01T12:00:00+00:00"' in outbox_event.payload_json
+    finally:
+        db.close()
+
 def test_worker_event_claim_is_idempotent_per_consumer():
     db = SessionLocal()
     try:

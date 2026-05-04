@@ -18,12 +18,12 @@ def _parse_deadline(value: str | None) -> datetime | None:
     return datetime.fromisoformat(normalized)
 
 
-def _deadline_bucket(deadline: str | None) -> str:
+def _deadline_bucket(deadline: str | None, reference_time: datetime) -> str:
     parsed = _parse_deadline(deadline)
     if parsed is None:
         return "no_deadline"
-    now = datetime.now(UTC)
-    seconds_left = (parsed - now).total_seconds()
+    normalized_reference = reference_time if reference_time.tzinfo is not None else reference_time.replace(tzinfo=UTC)
+    seconds_left = (parsed - normalized_reference).total_seconds()
     if seconds_left < 0:
         return "overdue"
     if seconds_left <= 24 * 60 * 60:
@@ -31,10 +31,17 @@ def _deadline_bucket(deadline: str | None) -> str:
     return "later"
 
 
-def _build_metadata(payload: dict) -> dict:
+def _event_reference_time(envelope: dict) -> datetime:
+    occurred_at = str(envelope.get("occurred_at") or "")
+    if not occurred_at:
+        raise ValueError("Task enrichment event is missing occurred_at")
+    return _parse_deadline(occurred_at)
+
+
+def _build_metadata(payload: dict, reference_time: datetime) -> dict:
     priority = str(payload.get("priority") or "unknown")
     return {
-        "deadline_bucket": _deadline_bucket(payload.get("deadline")),
+        "deadline_bucket": _deadline_bucket(payload.get("deadline"), reference_time),
         "is_high_priority": priority == "high",
         "has_assignee": bool(payload.get("assignee_id")),
     }
@@ -59,7 +66,8 @@ def handle_enrichment_event(db: Session, envelope: dict) -> str:
     if existing is not None:
         return f"Enrichment already exists for source_event_id={source_event_id}"
 
-    metadata = _build_metadata(payload)
+    reference_time = _event_reference_time(envelope)
+    metadata = _build_metadata(payload, reference_time)
     enriched_payload = {
         "task_id": task_id,
         "source_event_id": source_event_id,
@@ -70,6 +78,7 @@ def handle_enrichment_event(db: Session, envelope: dict) -> str:
         "priority": payload.get("priority"),
         "status": payload.get("status") or payload.get("to_status"),
         "metadata": metadata,
+        "metadata_reference_time": reference_time.isoformat(),
     }
     enrichment = TaskEnrichment(
         source_event_id=source_event_id,
