@@ -110,7 +110,7 @@ services:
     build:
       context: .
       dockerfile: services/task_service/Dockerfile
-    command: ["python", "-m", "app.messaging.outbox_publisher"]
+    command: ["python", "-m", "services.task_service.app.messaging.outbox_publisher"]
     environment:
       TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
@@ -130,8 +130,8 @@ services:
   notification-worker:
     build:
       context: .
-      dockerfile: services/task_service/Dockerfile
-    command: ["python", "-m", "app.notifications.worker"]
+      dockerfile: services/notification_service/Dockerfile
+    command: ["python", "-m", "services.notification_service.app.worker"]
     environment:
       TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
@@ -151,8 +151,8 @@ services:
   enrichment-service:
     build:
       context: .
-      dockerfile: services/task_service/Dockerfile
-    command: ["python", "-m", "app.enrichment.worker"]
+      dockerfile: services/enrichment_service/Dockerfile
+    command: ["python", "-m", "services.enrichment_service.app.worker"]
     environment:
       TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
@@ -172,8 +172,8 @@ services:
   notification-cron:
     build:
       context: .
-      dockerfile: services/task_service/Dockerfile
-    command: ["python", "-m", "app.notifications.cron"]
+      dockerfile: services/notification_service/Dockerfile
+    command: ["python", "-m", "services.notification_service.app.cron"]
     environment:
       TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
@@ -188,8 +188,8 @@ services:
   audit-worker:
     build:
       context: .
-      dockerfile: services/task_service/Dockerfile
-    command: ["python", "-m", "app.audit.worker"]
+      dockerfile: services/audit_service/Dockerfile
+    command: ["python", "-m", "services.audit_service.app.worker"]
     environment:
       TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
@@ -216,8 +216,8 @@ services:
   audit-report-cron:
     build:
       context: .
-      dockerfile: services/task_service/Dockerfile
-    command: ["python", "-m", "app.audit.report_cron"]
+      dockerfile: services/audit_service/Dockerfile
+    command: ["python", "-m", "services.audit_service.app.report_cron"]
     environment:
       TASK_DATABASE_URL: postgresql+psycopg://task_user:task_password@task-db:5432/task_db
       TASK_AUTH_DATABASE_URL: ${TASK_AUTH_DATABASE_URL:-postgresql+psycopg://auth_user:auth_password@auth-db:5432/auth_db}

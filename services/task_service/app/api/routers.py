@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 
 from shared.rate_limit import check_fixed_window_rate_limit
 
-from ..audit.report import generate_audit_report as build_audit_report
-from ..audit.request_audit import add_audit_log
+from services.audit_service.app.report import generate_audit_report as build_audit_report
+from ..tasks.audit_log import add_audit_log
 from ..tasks.events import TaskEventType, build_event_envelope
 from ..core.idempotency import compute_request_hash, create_idempotency_record, maybe_replay_idempotent_response
 from ..core.db import get_db

@@ -1,10 +1,10 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..messaging.worker_store import record_worker_error
-from ..tasks.events import NotificationEventType, build_event_envelope
-from ..tasks.models import NotificationDelivery
-from ..tasks.outbox import create_outbox_event
+from services.task_service.app.messaging.worker_store import record_worker_error
+from services.task_service.app.tasks.events import NotificationEventType, build_event_envelope
+from services.task_service.app.tasks.models import NotificationDelivery
+from services.task_service.app.tasks.outbox import create_outbox_event
 from .sender import EmailMessage, EmailSender, EmailSendResult, MockEmailSender
 from .store import (
     DELIVERY_FAILED,

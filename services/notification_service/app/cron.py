@@ -2,8 +2,8 @@ import argparse
 import asyncio
 import logging
 
-from ..core.config import get_settings
-from ..core.db import SessionLocal
+from services.task_service.app.core.config import get_settings
+from services.task_service.app.core.db import SessionLocal
 from .dispatcher import dispatch_pending_notifications
 
 logging.basicConfig(

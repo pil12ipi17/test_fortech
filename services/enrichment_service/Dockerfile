@@ -11,7 +11,3 @@ RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 COPY services /app/services
 COPY shared /app/shared
-
-EXPOSE 8002
-
-CMD ["uvicorn", "services.task_service.app.main:app", "--host", "0.0.0.0", "--port", "8002"]

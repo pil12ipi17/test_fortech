@@ -188,13 +188,13 @@ reports/audit_report.csv
 Ручной запуск отправки уведомлений:
 
 ```bash
-docker compose run --rm notification-cron python -m app.notifications.cron --once
+docker compose run --rm notification-cron python -m services.notification_service.app.cron --once
 ```
 
 Ручная генерация audit-отчета:
 
 ```bash
-docker compose run --rm audit-report-cron python -m app.audit.report_cron --once
+docker compose run --rm audit-report-cron python -m services.audit_service.app.report_cron --once
 ```
 
 ## Redis-кэширование и rate limiting
@@ -565,7 +565,7 @@ limit 10;
 8. Если не хочется ждать cron-интервал, можно запустить отправку уведомлений вручную:
 
 ```bash
-docker compose run --rm notification-cron python -m app.notifications.cron --once
+docker compose run --rm notification-cron python -m services.notification_service.app.cron --once
 ```
 
 9. Проверить worker trace:
@@ -614,7 +614,7 @@ Endpoint возвращает:
 13. Проверить CSV audit report:
 
 ```bash
-docker compose run --rm audit-report-cron python -m app.audit.report_cron --once
+docker compose run --rm audit-report-cron python -m services.audit_service.app.report_cron --once
 ```
 
 Файл создается или обновляется здесь:

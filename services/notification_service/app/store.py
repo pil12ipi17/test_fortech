@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from ..tasks.models import NotificationDelivery
+from services.task_service.app.tasks.models import NotificationDelivery
 from .sender import EmailMessage, EmailSendResult
 
 

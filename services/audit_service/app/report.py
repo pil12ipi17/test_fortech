@@ -5,7 +5,7 @@ from pathlib import Path
 from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.orm import Session
 
-from ..tasks.models import OutboxEvent, WorkerError
+from services.task_service.app.tasks.models import OutboxEvent, WorkerError
 
 REPORT_COLUMNS = ["date", "metric_name", "metric_value", "errors_count", "notes"]
 EVENT_METRICS = {

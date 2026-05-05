@@ -3,9 +3,9 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from ..tasks.events import EnrichmentEventType, build_event_envelope
-from ..tasks.models import TaskEnrichment
-from ..tasks.outbox import create_outbox_event
+from services.task_service.app.tasks.events import EnrichmentEventType, build_event_envelope
+from services.task_service.app.tasks.models import TaskEnrichment
+from services.task_service.app.tasks.outbox import create_outbox_event
 
 ENRICHMENT_PRODUCER = "enrichment-service"
 SUPPORTED_EVENTS = {"task.created", "task.status_changed"}

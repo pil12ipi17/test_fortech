@@ -22,16 +22,16 @@ from services.task_service.app.tasks.models import (  # noqa: E402
     WorkerError,
     WorkerEventLog,
 )
-from services.task_service.app.audit.report import generate_audit_report  # noqa: E402
+from services.audit_service.app.report import generate_audit_report  # noqa: E402
 from services.task_service.app.tasks.events import (  # noqa: E402
     EnrichmentEventType,
     NotificationEventType,
     TaskEventType,
     build_event_envelope,
 )
-from services.task_service.app.notifications.dispatcher import dispatch_pending_notifications  # noqa: E402
-from services.task_service.app.enrichment.handlers import handle_enrichment_event  # noqa: E402
-from services.task_service.app.notifications.handlers import handle_notification_event  # noqa: E402
+from services.notification_service.app.dispatcher import dispatch_pending_notifications  # noqa: E402
+from services.enrichment_service.app.handlers import handle_enrichment_event  # noqa: E402
+from services.notification_service.app.handlers import handle_notification_event  # noqa: E402
 from services.task_service.app.tasks.outbox import create_outbox_event  # noqa: E402
 from services.task_service.app.messaging.worker_store import claim_event_for_processing, record_worker_error  # noqa: E402
 from services.task_service.app.core.config import Settings, get_settings  # noqa: E402

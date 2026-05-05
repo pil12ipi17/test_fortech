@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 from .handlers import handle_enrichment_event
-from ..messaging.worker_runtime import run_task_event_consumer
+from services.task_service.app.messaging.worker_runtime import run_task_event_consumer
 
 logging.basicConfig(
     level=logging.INFO,

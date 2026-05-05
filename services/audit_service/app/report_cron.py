@@ -6,8 +6,8 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from .report import generate_audit_report
-from ..core.config import get_settings
-from ..core.db import SessionLocal
+from services.task_service.app.core.config import get_settings
+from services.task_service.app.core.db import SessionLocal
 
 logging.basicConfig(
     level=logging.INFO,
