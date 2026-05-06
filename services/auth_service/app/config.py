@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     redis_socket_timeout_seconds: float = 0.5
     login_rate_limit_requests: int = 5
     login_rate_limit_window_seconds: int = 60
+    otel_exporter_otlp_endpoint: str | None = None
 
     model_config = SettingsConfigDict(env_prefix="AUTH_", case_sensitive=False)
 

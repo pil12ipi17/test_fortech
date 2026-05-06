@@ -7,6 +7,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from shared.rate_limit import check_fixed_window_rate_limit
+from shared.tracing import get_request_correlation_id, get_tracer
 
 from services.audit_service.app.report import generate_audit_report as build_audit_report
 from ..tasks.audit_log import add_audit_log
@@ -33,6 +34,7 @@ from ..cache.redis_client import get_redis_client
 from ..cache.task_cache import build_task_item_cache_key, get_cached_json, invalidate_task_cache, set_cached_json
 
 logger = logging.getLogger("task-service.rate-limit")
+tracer = get_tracer("task-service.api")
 
 router = APIRouter(tags=["tasks"])
 
@@ -105,14 +107,15 @@ def add_task_outbox_event(
     payload: dict,
     correlation_id: str | None = None,
 ) -> None:
-    envelope = build_event_envelope(
-        event_type=event_type,
-        payload=payload,
-        correlation_id=correlation_id,
-    )
-    db.add(create_outbox_event(envelope=envelope, aggregate_type="task", aggregate_id=aggregate_id))
-
-
+    with tracer.start_as_current_span("task.outbox_event.create") as span:
+        span.set_attribute("event.type", event_type.value)
+        span.set_attribute("outbox.aggregate_type", "task")
+        envelope = build_event_envelope(
+            event_type=event_type,
+            payload=payload,
+            correlation_id=correlation_id,
+        )
+        db.add(create_outbox_event(envelope=envelope, aggregate_type="task", aggregate_id=aggregate_id))
 
 def build_order_clauses(*, sort_by: TaskSortBy, sort_order: SortOrder):
     descending = sort_order == SortOrder.DESC
@@ -161,20 +164,25 @@ def create_task(
     if replay is not None:
         return replay
 
-    task = Task(
-        owner_id=current_user.user_id,
-        assignee_id=payload.assignee_id.strip(),
-        team_id=payload.team_id.strip(),
-        title=payload.title.strip(),
-        description=payload.description,
-        status=TaskStatus.TODO,
-        priority=payload.priority,
-        deadline=payload.deadline,
-    )
-    db.add(task)
-    db.flush()
-    db.refresh(task)
-
+    correlation_id = get_request_correlation_id(request)
+    with tracer.start_as_current_span("task.create.persist") as span:
+        span.set_attribute("task.priority", payload.priority.value)
+        span.set_attribute("task.has_deadline", payload.deadline is not None)
+        span.set_attribute("task.has_assignee", bool(payload.assignee_id.strip()))
+        span.set_attribute("task.has_team", bool(payload.team_id.strip()))
+        task = Task(
+            owner_id=current_user.user_id,
+            assignee_id=payload.assignee_id.strip(),
+            team_id=payload.team_id.strip(),
+            title=payload.title.strip(),
+            description=payload.description,
+            status=TaskStatus.TODO,
+            priority=payload.priority,
+            deadline=payload.deadline,
+        )
+        db.add(task)
+        db.flush()
+        db.refresh(task)
     response_payload = TaskResponse.model_validate(task).model_dump(mode="json")
     if idempotency_key:
         db.add(
@@ -193,7 +201,7 @@ def create_task(
         db=db,
         event_type=TaskEventType.CREATED,
         aggregate_id=task.id,
-        correlation_id=idempotency_key,
+        correlation_id=correlation_id,
         payload={
             "task_id": task.id,
             "owner_id": task.owner_id,
@@ -408,6 +416,7 @@ def change_task_status(
     if replay is not None:
         return replay
 
+    correlation_id = get_request_correlation_id(request)
     task = get_task_if_visible(db=db, task_id=task_id, current_user=current_user)
     if not can_manage_task(task=task, current_user=current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Task status update is forbidden")
@@ -447,7 +456,7 @@ def change_task_status(
         db=db,
         event_type=TaskEventType.STATUS_CHANGED,
         aggregate_id=task.id,
-        correlation_id=idempotency_key,
+        correlation_id=correlation_id,
         payload={
             "task_id": task.id,
             "owner_id": task.owner_id,

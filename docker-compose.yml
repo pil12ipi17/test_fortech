@@ -109,6 +109,7 @@ services:
       AUTH_REDIS_URL: ${AUTH_REDIS_URL:-redis://redis:6379/0}
       AUTH_LOGIN_RATE_LIMIT_REQUESTS: ${AUTH_LOGIN_RATE_LIMIT_REQUESTS:-5}
       AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS:-60}
+      AUTH_OTEL_EXPORTER_OTLP_ENDPOINT: ${AUTH_OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318/v1/traces}
     depends_on:
       auth-db:
         condition: service_healthy
@@ -129,6 +130,7 @@ services:
       TASK_TASK_WRITE_RATE_LIMIT_WINDOW_SECONDS: ${TASK_TASK_WRITE_RATE_LIMIT_WINDOW_SECONDS:-60}
       TASK_AUTH_DATABASE_URL: ${TASK_AUTH_DATABASE_URL:-postgresql+psycopg://auth_user:auth_password@auth-db:5432/auth_db}
       TASK_AUDIT_REPORT_PATH: ${TASK_AUDIT_REPORT_PATH:-/app/reports/audit_report.csv}
+      TASK_OTEL_EXPORTER_OTLP_ENDPOINT: ${TASK_OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318/v1/traces}
     volumes:
       - ./reports:/app/reports
     depends_on:
@@ -236,6 +238,7 @@ services:
       TASK_WORKER_RETRY_BACKOFF_MAX_SECONDS: ${TASK_WORKER_RETRY_BACKOFF_MAX_SECONDS:-10}
       TASK_AUTH_DATABASE_URL: ${TASK_AUTH_DATABASE_URL:-postgresql+psycopg://auth_user:auth_password@auth-db:5432/auth_db}
       TASK_AUDIT_REPORT_PATH: ${TASK_AUDIT_REPORT_PATH:-/app/reports/audit_report.csv}
+      TASK_OTEL_EXPORTER_OTLP_ENDPOINT: ${TASK_OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318/v1/traces}
       TASK_AUDIT_REPORT_INTERVAL_SECONDS: ${TASK_AUDIT_REPORT_INTERVAL_SECONDS:-3600}
     depends_on:
       task-db:
@@ -259,6 +262,7 @@ services:
       TASK_AUTH_DATABASE_URL: ${TASK_AUTH_DATABASE_URL:-postgresql+psycopg://auth_user:auth_password@auth-db:5432/auth_db}
       TASK_JWT_SECRET: ${JWT_SHARED_SECRET:-change-me-in-production}
       TASK_AUDIT_REPORT_PATH: ${TASK_AUDIT_REPORT_PATH:-/app/reports/audit_report.csv}
+      TASK_OTEL_EXPORTER_OTLP_ENDPOINT: ${TASK_OTEL_EXPORTER_OTLP_ENDPOINT:-http://jaeger:4318/v1/traces}
       TASK_AUDIT_REPORT_INTERVAL_SECONDS: ${TASK_AUDIT_REPORT_INTERVAL_SECONDS:-3600}
     depends_on:
       auth-db:
