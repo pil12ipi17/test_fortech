@@ -808,3 +808,16 @@ def test_task_item_cache_hit_and_invalidation_after_update(monkeypatch):
             assert list(fake_redis.scan_iter("tasks:*")) == []
     finally:
         app.dependency_overrides.pop(get_settings, None)
+
+def test_task_service_prometheus_metrics_endpoint():
+    with TestClient(app) as client:
+        client.get("/health")
+        response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    body = response.text
+    assert "http_requests_total" in body
+    assert "http_request_duration_seconds_bucket" in body
+    assert 'service="task-service"' in body
+    assert 'endpoint="/health"' in body

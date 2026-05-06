@@ -7,6 +7,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import text
 
 from shared.errors import register_error_handlers
+from shared.metrics import register_prometheus_metrics
 
 from .core.config import get_settings
 from .core.db import engine, run_migrations
@@ -29,6 +30,7 @@ async def lifespan(_: FastAPI):
 settings = get_settings()
 app = FastAPI(title=settings.app_name, version="1.0.0", lifespan=lifespan)
 register_error_handlers(app)
+register_prometheus_metrics(app, service_name=settings.app_name)
 app.include_router(task_router)
 
 
