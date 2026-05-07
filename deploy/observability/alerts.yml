@@ -1,12 +1,45 @@
 groups:
-  - name: task-management-observability
+  - name: task-management-sli-recording-rules
     rules:
+      - record: sli:api_availability:ratio5m
+        expr: |
+          1 - (
+            sum(rate(http_requests_total{status_code=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(http_requests_total[5m])), 0.001)
+          )
+
+      - record: sli:task_create_p95_latency_seconds:5m
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(http_request_duration_seconds_bucket{service="task-service", method="POST", endpoint="/tasks"}[5m])) by (le)
+          )
+
+      - record: sli:event_pipeline_success:ratio5m
+        expr: |
+          sum(rate(worker_events_total{result="processed"}[5m]))
+          /
+          clamp_min(sum(rate(worker_events_total{result=~"processed|retry|dlq|error"}[5m])), 0.001)
+
+  - name: task-management-observability-alerts
+    rules:
+      - alert: ApiAvailabilityBelowSlo
+        expr: sli:api_availability:ratio5m < 0.995
+        for: 10m
+        labels:
+          severity: warning
+          slo: api-availability
+        annotations:
+          summary: "API availability is below SLO"
+          description: "API availability over 5m is below the 99.5% SLO for 10 minutes. Check 5xx rate, service logs, database readiness, and traces."
+
       - alert: HighApi5xxRate
         expr: |
           (
             sum(rate(http_requests_total{status_code=~"5.."}[5m]))
             /
-            clamp_min(sum(rate(http_requests_total[5m])), 1)
+            clamp_min(sum(rate(http_requests_total[5m])), 0.001)
           ) > 0.05
         for: 5m
         labels:
@@ -14,6 +47,16 @@ groups:
         annotations:
           summary: "High API 5xx rate"
           description: "More than 5% of API requests are returning 5xx for 5 minutes."
+
+      - alert: CreateTaskP95LatencyAboveSlo
+        expr: sli:task_create_p95_latency_seconds:5m > 3
+        for: 10m
+        labels:
+          severity: warning
+          slo: create-task-latency
+        annotations:
+          summary: "Create task p95 latency is above SLO"
+          description: "p95 latency for POST /tasks is above 3 seconds for 10 minutes. Use Jaeger trace_id/correlation_id to find the slow step."
 
       - alert: HighApiP95Latency
         expr: |
@@ -28,6 +71,16 @@ groups:
           summary: "High API p95 latency"
           description: "p95 latency is above 1 second for 10 minutes."
 
+      - alert: EventPipelineSuccessBelowSlo
+        expr: sli:event_pipeline_success:ratio5m < 0.99
+        for: 10m
+        labels:
+          severity: warning
+          slo: event-pipeline-reliability
+        annotations:
+          summary: "Event pipeline success rate is below target"
+          description: "Less than 99% of worker events are processed successfully. Check worker_errors_total, retries, DLQ, and worker traces."
+
       - alert: ConsumerErrorsOrDlqGrowing
         expr: |
           sum(increase(worker_errors_total[5m])) > 0
@@ -39,3 +92,12 @@ groups:
         annotations:
           summary: "Consumer errors or DLQ activity detected"
           description: "Worker errors or DLQ messages were observed during the last 5 minutes."
+
+      - alert: WorkerHandlersSaturated
+        expr: sum(worker_active_handlers) by (consumer) >= 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Worker active handlers are saturated"
+          description: "A worker has reached the current prefetch concurrency limit for 10 minutes. Check queue lag and worker processing latency."
