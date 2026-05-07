@@ -133,7 +133,11 @@ async def run_forever() -> None:
     logger.info("Outbox publisher started")
     try:
         while True:
-            published = await publish_pending_events_once(exchange=exchange)
+            try:
+                published = await publish_pending_events_once(exchange=exchange)
+            except Exception:
+                logger.exception("Outbox publisher iteration failed; retrying after poll interval")
+                published = 0
             if published == 0:
                 await asyncio.sleep(settings.outbox_publish_poll_interval_seconds)
     finally:
