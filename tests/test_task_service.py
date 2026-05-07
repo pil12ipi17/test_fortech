@@ -100,6 +100,8 @@ def test_stage7_event_contract_envelopes_keep_trace_metadata():
     assert sent["version"] == 1
     assert sent["producer"] == "notification-worker"
     assert sent["correlation_id"] == enriched["correlation_id"]
+    assert enriched["trace_context"]["x-correlation-id"] == enriched["correlation_id"]
+    assert sent["trace_context"]["x-correlation-id"] == sent["correlation_id"]
 
 def test_enrichment_worker_creates_enrichment_and_outbox_event():
     envelope = build_event_envelope(

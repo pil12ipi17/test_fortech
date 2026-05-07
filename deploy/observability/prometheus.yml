@@ -11,7 +11,7 @@ scrape_configs:
       - targets:
           - prometheus:9090
 
-  # Application metrics endpoints are added in the next implementation block.
+  # Application and event-worker metrics endpoints.
   - job_name: task-service
     metrics_path: /metrics
     static_configs:
@@ -23,3 +23,11 @@ scrape_configs:
     static_configs:
       - targets:
           - auth-service:8001
+  - job_name: event-workers
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - outbox-publisher:9100
+          - enrichment-service:9100
+          - notification-worker:9100
+          - audit-worker:9100

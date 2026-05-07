@@ -1,11 +1,24 @@
 import asyncio
 import json
 import logging
+import time
 from collections.abc import Callable
 
 import aio_pika
 from aio_pika.abc import HeadersType
+from opentelemetry.propagate import extract, inject
+from opentelemetry.trace import SpanKind, Status, StatusCode
 from sqlalchemy.orm import Session
+
+from shared.metrics import (
+    EVENT_PIPELINE_DLQ_MESSAGES,
+    WORKER_ACTIVE_HANDLERS,
+    WORKER_ERRORS_TOTAL,
+    WORKER_EVENT_PROCESSING_DURATION_SECONDS,
+    WORKER_EVENTS_TOTAL,
+    start_metrics_http_server,
+)
+from shared.tracing import CORRELATION_ID_HEADER, configure_tracing, get_current_trace_ids, get_tracer
 
 from ..core.config import get_settings
 from ..core.db import SessionLocal
@@ -13,6 +26,7 @@ from .rabbitmq import build_rabbitmq_config
 from .worker_store import add_worker_event_log, claim_event_for_processing, record_worker_error
 
 logger = logging.getLogger("task-event-worker")
+tracer = get_tracer("task-event-worker")
 
 DEFAULT_BINDING_KEYS = ("task.*",)
 RETRY_HEADER = "x-retry-count"
@@ -111,6 +125,7 @@ async def _republish_for_retry(
 ) -> None:
     headers = _message_headers(message)
     headers[RETRY_HEADER] = retry_count + 1
+    inject(headers)
     retry_message = aio_pika.Message(
         body=message.body,
         content_type=message.content_type,
@@ -131,6 +146,8 @@ async def run_task_event_consumer(
     binding_keys: tuple[str, ...] = DEFAULT_BINDING_KEYS,
 ) -> None:
     settings = get_settings()
+    configure_tracing(service_name=consumer_name, otlp_endpoint=settings.otel_exporter_otlp_endpoint)
+    start_metrics_http_server(settings.metrics_port)
     connection, channel, exchange, queue = await _create_queue(queue_name=queue_name, binding_keys=binding_keys)
     logger.info("Worker started consumer=%s queue=%s binding_keys=%s", consumer_name, queue_name, binding_keys)
 
@@ -139,63 +156,94 @@ async def run_task_event_consumer(
             async for message in queue_iter:
                 envelope: dict = {}
                 event_id = str(message.message_id or "")
-                event_type = str(message.type or "")
+                event_type = str(message.type or "unknown")
                 correlation_id = str(message.correlation_id or event_id)
+                result = "error"
+                start = time.perf_counter()
+                WORKER_ACTIVE_HANDLERS.labels(consumer=consumer_name).inc()
+                parent_context = extract(_message_headers(message))
                 try:
-                    envelope = _decode_event(message)
-                    event_id = str(envelope.get("event_id") or event_id)
-                    event_type = str(envelope.get("event_type") or event_type)
-                    correlation_id = str(envelope.get("correlation_id") or correlation_id or event_id)
-                    if not event_id or not event_type:
-                        raise ValueError("Incoming task event is missing event_id or event_type")
+                    with tracer.start_as_current_span("rabbitmq.consume", context=parent_context, kind=SpanKind.CONSUMER) as span:
+                        span.set_attribute("messaging.system", "rabbitmq")
+                        span.set_attribute("messaging.operation", "process")
+                        span.set_attribute("messaging.destination.name", queue_name)
+                        span.set_attribute("consumer.name", consumer_name)
+                        envelope = _decode_event(message)
+                        event_id = str(envelope.get("event_id") or event_id)
+                        event_type = str(envelope.get("event_type") or event_type)
+                        correlation_id = str(envelope.get("correlation_id") or correlation_id or event_id)
+                        span.set_attribute("event.type", event_type)
+                        span.set_attribute("correlation_id", correlation_id)
+                        if not event_id or not event_type:
+                            raise ValueError("Incoming task event is missing event_id or event_type")
 
-                    db = SessionLocal()
-                    try:
-                        claimed = claim_event_for_processing(
-                            db=db,
-                            event_id=event_id,
-                            consumer_name=consumer_name,
-                            event_type=event_type,
-                            correlation_id=correlation_id,
-                        )
-                        if not claimed:
+                        db = SessionLocal()
+                        try:
+                            claimed = claim_event_for_processing(
+                                db=db,
+                                event_id=event_id,
+                                consumer_name=consumer_name,
+                                event_type=event_type,
+                                correlation_id=correlation_id,
+                            )
+                            if not claimed:
+                                result = "duplicate"
+                                WORKER_EVENTS_TOTAL.labels(
+                                    consumer=consumer_name,
+                                    event_type=event_type,
+                                    result=result,
+                                ).inc()
+                                logger.info(
+                                    "skipped_duplicate_event event_type=%s consumer=%s correlation_id=%s",
+                                    event_type,
+                                    consumer_name,
+                                    correlation_id,
+                                )
+                                await message.ack()
+                                continue
+
+                            with tracer.start_as_current_span("worker.handler") as handler_span:
+                                handler_span.set_attribute("consumer.name", consumer_name)
+                                handler_span.set_attribute("event.type", event_type)
+                                note = event_handler(db, envelope)
+                            add_worker_event_log(
+                                db=db,
+                                consumer_name=consumer_name,
+                                event_id=event_id,
+                                event_type=event_type,
+                                correlation_id=correlation_id,
+                                payload=envelope,
+                                note=note,
+                            )
+                            db.commit()
+                            result = "processed"
+                            WORKER_EVENTS_TOTAL.labels(
+                                consumer=consumer_name,
+                                event_type=event_type,
+                                result=result,
+                            ).inc()
+                            trace_id, _ = get_current_trace_ids()
                             logger.info(
-                                "Skipping duplicate event_id=%s consumer=%s",
-                                event_id,
+                                "processed_event event_type=%s consumer=%s correlation_id=%s trace_id=%s",
+                                event_type,
                                 consumer_name,
+                                correlation_id,
+                                trace_id,
                             )
                             await message.ack()
-                            continue
-
-                        note = event_handler(db, envelope)
-                        add_worker_event_log(
-                            db=db,
-                            consumer_name=consumer_name,
-                            event_id=event_id,
-                            event_type=event_type,
-                            correlation_id=correlation_id,
-                            payload=envelope,
-                            note=note,
-                        )
-                        db.commit()
-                        logger.info(
-                            "Processed event_id=%s event_type=%s consumer=%s",
-                            event_id,
-                            event_type,
-                            consumer_name,
-                        )
-                        await message.ack()
-                    except Exception:
-                        db.rollback()
-                        logger.exception(
-                            "Failed to process event_id=%s consumer=%s",
-                            event_id,
-                            consumer_name,
-                        )
-                        raise
-                    finally:
-                        db.close()
+                        except Exception:
+                            db.rollback()
+                            logger.exception(
+                                "failed_to_process_event event_type=%s consumer=%s correlation_id=%s",
+                                event_type,
+                                consumer_name,
+                                correlation_id,
+                            )
+                            raise
+                        finally:
+                            db.close()
                 except Exception as exc:
+                    WORKER_ERRORS_TOTAL.labels(consumer=consumer_name, event_type=event_type).inc()
                     retry_count = _retry_count(message)
                     _save_worker_error(
                         consumer_name=consumer_name,
@@ -209,27 +257,46 @@ async def run_task_event_consumer(
                     if retry_count < settings.worker_max_retry_attempts:
                         retry_delay_seconds = _retry_delay_seconds(retry_count=retry_count)
                         await asyncio.sleep(retry_delay_seconds)
-                        await _republish_for_retry(
-                            exchange=exchange,
-                            message=message,
-                            retry_count=retry_count,
-                        )
+                        with tracer.start_as_current_span("rabbitmq.retry_publish", kind=SpanKind.PRODUCER) as retry_span:
+                            retry_span.set_attribute("event.type", event_type)
+                            retry_span.set_attribute("consumer.name", consumer_name)
+                            await _republish_for_retry(
+                                exchange=exchange,
+                                message=message,
+                                retry_count=retry_count,
+                            )
+                        result = "retry"
+                        WORKER_EVENTS_TOTAL.labels(consumer=consumer_name, event_type=event_type, result=result).inc()
                         await message.ack()
                         logger.warning(
-                            "Republished event for retry consumer=%s retry=%s max_retry=%s delay_seconds=%s",
+                            "republished_event_for_retry consumer=%s event_type=%s retry=%s max_retry=%s delay_seconds=%s correlation_id=%s",
                             consumer_name,
+                            event_type,
                             retry_count + 1,
                             settings.worker_max_retry_attempts,
                             retry_delay_seconds,
+                            correlation_id,
                         )
                     else:
+                        result = "dlq"
+                        WORKER_EVENTS_TOTAL.labels(consumer=consumer_name, event_type=event_type, result=result).inc()
+                        EVENT_PIPELINE_DLQ_MESSAGES.labels(consumer=consumer_name, event_type=event_type).inc()
                         await message.nack(requeue=False)
                         logger.error(
-                            "Moved event to DLQ consumer=%s retries=%s max_retry=%s",
+                            "moved_event_to_dlq consumer=%s event_type=%s retries=%s max_retry=%s correlation_id=%s",
                             consumer_name,
+                            event_type,
                             retry_count,
                             settings.worker_max_retry_attempts,
+                            correlation_id,
                         )
+                finally:
+                    WORKER_ACTIVE_HANDLERS.labels(consumer=consumer_name).dec()
+                    WORKER_EVENT_PROCESSING_DURATION_SECONDS.labels(
+                        consumer=consumer_name,
+                        event_type=event_type,
+                        result=result,
+                    ).observe(time.perf_counter() - start)
     finally:
         await channel.close()
         await connection.close()
