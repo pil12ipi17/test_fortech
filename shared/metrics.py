@@ -1,9 +1,12 @@
+import logging
 import time
 from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import Response as FastAPIResponse
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest, start_http_server
+
+logger = logging.getLogger("observability.metrics")
 
 HTTP_REQUESTS_TOTAL = Counter(
     "http_requests_total",
@@ -70,6 +73,7 @@ def start_metrics_http_server(port: int | None) -> None:
         return
     start_http_server(port)
     _METRICS_SERVER_STARTED_PORTS.add(port)
+    logger.info("metrics_server_started host=0.0.0.0 port=%s path=/metrics", port)
 
 
 def _endpoint_label(request: Request) -> str:
