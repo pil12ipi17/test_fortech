@@ -1,0 +1,145 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [ { "expr": "sum(rate(http_requests_total[5m])) by (service)", "legendFormat": "{{service}}", "refId": "A" } ],
+      "title": "API RPS",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 0 },
+      "id": 2,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [ { "expr": "sli:api_availability:ratio5m", "legendFormat": "availability", "refId": "A" } ],
+      "title": "API availability SLI",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 0 },
+      "id": 3,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [ { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service, endpoint))", "legendFormat": "{{service}} {{endpoint}}", "refId": "A" } ],
+      "title": "API p95 latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 7 },
+      "id": 4,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [ { "expr": "sli:task_create_p95_latency_seconds:5m", "legendFormat": "POST /tasks p95", "refId": "A" } ],
+      "title": "Create task p95 latency SLO",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0 }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 7 },
+      "id": 5,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [ { "expr": "sum(rate(http_requests_total{status_code=~\"5..\"}[5m])) by (service) / clamp_min(sum(rate(http_requests_total[5m])) by (service), 0.001)", "legendFormat": "{{service}}", "refId": "A" } ],
+      "title": "API 5xx rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "eps" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 7 },
+      "id": 6,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [ { "expr": "sum(rate(outbox_events_published_total{result=\"success\"}[5m])) by (event_type)", "legendFormat": "{{event_type}}", "refId": "A" } ],
+      "title": "Outbox publish throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "eps" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 14 },
+      "id": 7,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [ { "expr": "sum(rate(worker_events_total{result=\"processed\"}[5m])) by (consumer, event_type)", "legendFormat": "{{consumer}} {{event_type}}", "refId": "A" } ],
+      "title": "Worker throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 14 },
+      "id": 8,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [ { "expr": "histogram_quantile(0.95, sum(rate(worker_event_processing_duration_seconds_bucket[5m])) by (le, consumer, event_type))", "legendFormat": "{{consumer}} {{event_type}}", "refId": "A" } ],
+      "title": "Worker p95 processing latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 14 },
+      "id": 9,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [
+        { "expr": "sum(rate(worker_errors_total[5m])) by (consumer, event_type)", "legendFormat": "errors {{consumer}} {{event_type}}", "refId": "A" },
+        { "expr": "sum(event_pipeline_dlq_messages) by (consumer, event_type)", "legendFormat": "dlq {{consumer}} {{event_type}}", "refId": "B" }
+      ],
+      "title": "Worker errors and DLQ",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 0, "y": 21 },
+      "id": 10,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [ { "expr": "sum(worker_active_handlers) by (consumer)", "legendFormat": "{{consumer}}", "refId": "A" } ],
+      "title": "Worker active handlers",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 8, "y": 21 },
+      "id": 11,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [ { "expr": "sli:event_pipeline_success:ratio5m", "legendFormat": "event pipeline success", "refId": "A" } ],
+      "title": "Event pipeline success SLI",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 8, "x": 16, "y": 21 },
+      "id": 12,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [ { "expr": "histogram_quantile(0.95, sum(rate(outbox_publish_duration_seconds_bucket[5m])) by (le, event_type, result))", "legendFormat": "{{event_type}} {{result}}", "refId": "A" } ],
+      "title": "Outbox publish p95 latency",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["task-management", "observability", "slo"],
+  "templating": { "list": [] },
+  "time": { "from": "now-30m", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Task Management Observability",
+  "uid": "task-management-overview",
+  "version": 2,
+  "weekStart": ""
+}

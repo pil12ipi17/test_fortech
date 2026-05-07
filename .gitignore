@@ -54,3 +54,4 @@ docker-compose.override.yml
 docs/
 *.pdf
 pytest-cache-files-*
+reports/

@@ -1,0 +1,342 @@
+<mxfile host="Electron" agent="Codex">
+  <diagram id="stage-8-architecture" name="Архитектура этапа 8">
+    <mxGraphModel dx="1236" dy="1082" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2600" pageHeight="1700" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=18;fontStyle=1" value="&lt;font style=&quot;font-size: 25px;&quot;&gt;Архитектура проекта, этап 8: backend, event pipeline, Redis, observability, SLO&lt;/font&gt;" vertex="1">
+          <mxGeometry height="40" width="1060" x="40" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="browser" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1ba1e2;strokeColor=#006EAF;fontStyle=1;fontColor=#ffffff;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;Браузер / пользователь&lt;/font&gt;" vertex="1">
+          <mxGeometry height="70" width="150" x="60" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="gateway" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1ba1e2;strokeColor=#006EAF;fontStyle=1;fontColor=#ffffff;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;Nginx-шлюз&lt;br&gt;localhost:8080&lt;/font&gt;" vertex="1">
+          <mxGeometry height="70" width="170" x="430" y="110" as="geometry" />
+        </mxCell>
+        <mxCell id="frontend" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1ba1e2;strokeColor=#006EAF;fontColor=#ffffff;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;Frontend&lt;br&gt;статическое приложение&lt;/font&gt;" vertex="1">
+          <mxGeometry height="70" width="160" x="720" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="auth" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#60a917;strokeColor=#2D7600;fontStyle=1;fontColor=#ffffff;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;auth-service&lt;br&gt;регистрация, логин, refresh, RBAC&lt;br&gt;Redis rate limit, /metrics, traces&lt;/font&gt;" vertex="1">
+          <mxGeometry height="90" width="230" x="120" y="290" as="geometry" />
+        </mxCell>
+        <mxCell id="task" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#60a917;strokeColor=#2D7600;fontStyle=1;fontColor=#ffffff;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;task-service&lt;br&gt;API задач, Redis cache/rate limit,&lt;br&gt;outbox, /metrics, OpenTelemetry traces&lt;/font&gt;" vertex="1">
+          <mxGeometry height="90" width="250" x="600" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="authdb" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#647687;strokeColor=#314354;fontColor=#ffffff;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;auth-db&lt;br&gt;users, roles, teams&lt;br&gt;refresh-сессии&lt;br&gt;audit_log&lt;/font&gt;" vertex="1">
+          <mxGeometry height="195" width="180" x="145" y="485" as="geometry" />
+        </mxCell>
+        <mxCell id="taskdb" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#647687;strokeColor=#314354;fontColor=#ffffff;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;task-db&lt;br&gt;tasks, idempotency_keys&lt;br&gt;outbox_events, task_enrichments&lt;br&gt;processed_events, worker_event_logs&lt;br&gt;notification_deliveries, worker_errors&lt;/font&gt;" vertex="1">
+          <mxGeometry height="195" width="200" x="610" y="485" as="geometry" />
+        </mxCell>
+        <mxCell id="publisher" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0a30a;strokeColor=#BD7000;fontStyle=1;fontColor=#000000;" value="outbox-publisher&lt;br&gt;claim outbox_events&lt;br&gt;публикует в RabbitMQ&lt;br&gt;прокидывает trace headers&lt;br&gt;/metrics на :9100" vertex="1">
+          <mxGeometry height="100" width="220" x="940" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="rabbit" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fa6800;strokeColor=#C73500;fontStyle=1;arcSize=5;fontColor=#000000;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;RabbitMQ-брокер&lt;br&gt;topic exchange, очереди, bindings, DLX/DLQ&lt;/font&gt;" vertex="1">
+          <mxGeometry height="690" width="750" x="1280" y="5" as="geometry" />
+        </mxCell>
+        <mxCell id="exchange" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3c800;strokeColor=#B09500;fontStyle=1;fontColor=#000000;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;topic exchange&lt;br&gt;tasks.events&lt;/font&gt;" vertex="1">
+          <mxGeometry height="80" width="170" x="1560" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="notif_queue" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3c800;strokeColor=#B09500;fontColor=#000000;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;очередь&lt;br&gt;notifications.task-events&lt;br&gt;binding: task.enriched&lt;/font&gt;" vertex="1">
+          <mxGeometry height="100" width="190" x="1750" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="audit_queue" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3c800;strokeColor=#B09500;fontColor=#000000;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;очередь&lt;br&gt;audit.task-events&lt;br&gt;binding: task.*, notification.*&lt;/font&gt;" vertex="1">
+          <mxGeometry height="90" width="190" x="1360" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="dlx" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e51400;strokeColor=#B20000;fontStyle=1;fontColor=#ffffff;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;DLX&lt;br&gt;tasks.events.dlx&lt;/font&gt;" vertex="1">
+          <mxGeometry height="70" width="170" x="1560" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="dlq" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e51400;strokeColor=#B20000;fontColor=#ffffff;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;DLQ-очереди&lt;br&gt;enrichment.task-events.dlq&lt;br&gt;notifications.task-events.dlq&lt;br&gt;audit.task-events.dlq&lt;/font&gt;" vertex="1">
+          <mxGeometry height="100" width="190" x="1550" y="570" as="geometry" />
+        </mxCell>
+        <mxCell id="notification_worker" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0a30a;strokeColor=#BD7000;fontStyle=1;fontColor=#000000;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;notification-worker&lt;br&gt;читает task.enriched&lt;br&gt;создает pending-уведомление&lt;br&gt;идемпотентность + /metrics + traces&lt;/font&gt;" vertex="1">
+          <mxGeometry height="110" width="230" x="1210" y="890" as="geometry" />
+        </mxCell>
+        <mxCell id="mock_email" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;MockEmailSender&lt;br&gt;заменяемый email-адаптер&lt;br&gt;без реального SMTP&lt;/font&gt;" vertex="1">
+          <mxGeometry height="90" width="230" x="650" y="1260" as="geometry" />
+        </mxCell>
+        <mxCell id="audit_worker" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0a30a;strokeColor=#BD7000;fontStyle=1;fontColor=#000000;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;audit-worker&lt;br&gt;читает task.* и notification.*&lt;br&gt;пишет worker_event_logs/errors&lt;br&gt;обновляет CSV-отчет&lt;/font&gt;" vertex="1">
+          <mxGeometry height="110" width="230" x="1210" y="720" as="geometry" />
+        </mxCell>
+        <mxCell id="cron" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0a30a;strokeColor=#BD7000;fontStyle=1;fontColor=#000000;" value="audit-report-cron&lt;br&gt;фоновый процесс по расписанию&lt;br&gt;генерирует CSV с заданным интервалом" vertex="1">
+          <mxGeometry height="110" width="230" x="120" y="910" as="geometry" />
+        </mxCell>
+        <mxCell id="report" parent="1" style="shape=document;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;reports/audit_report.csv&lt;br&gt;date, metric_name, metric_value,&lt;br&gt;errors_count, notes&lt;/font&gt;" vertex="1">
+          <mxGeometry height="120" width="260" x="105" y="1170" as="geometry" />
+        </mxCell>
+        <mxCell id="notification_cron" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0a30a;strokeColor=#BD7000;fontStyle=1;fontColor=#000000;" value="notification-cron&lt;br&gt;плановый dispatcher&lt;br&gt;отправляет pending/failed&lt;br&gt;создает notification.sent через outbox" vertex="1">
+          <mxGeometry height="90" width="230" x="650" y="1080" as="geometry" />
+        </mxCell>
+        <mxCell id="legend" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=13" value="&lt;font style=&quot;font-size: 20px;&quot;&gt;Легенда: синий = HTTP/gateway, зеленый = API-сервисы, фиолетовый = базы данных/Redis, оранжевый = фоновые процессы, желтый = RabbitMQ, красный = DLX/DLQ, бирюзовый = observability. Пунктир = metrics/traces.&lt;/font&gt;" vertex="1">
+          <mxGeometry height="40" width="1500" x="30" y="1580" as="geometry" />
+        </mxCell>
+        <mxCell id="e_browser_gateway" edge="1" parent="1" source="browser" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#6c8ebf;strokeWidth=3;" target="gateway" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;HTTP&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="260" y="145" />
+              <mxPoint x="260" y="145" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_gateway_frontend" edge="1" parent="1" source="gateway" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#6c8ebf;strokeWidth=3;" target="frontend" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;GET /&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="700" y="145" />
+              <mxPoint x="700" y="145" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_gateway_auth" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#82b366;strokeWidth=3;" target="auth" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;/api/v1/auth, /users, /teams&lt;/font&gt;">
+          <mxGeometry relative="1" x="-0.1724" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="230" y="240" />
+            </Array>
+            <mxPoint x="520" y="240" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_gateway_task" edge="1" parent="1" source="gateway" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#82b366;entryX=0.5;entryY=0;entryDx=0;entryDy=0;strokeWidth=3;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="task" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;/api/v1/tasks&lt;/font&gt;">
+          <mxGeometry relative="1" x="0.0333" as="geometry">
+            <mxPoint as="offset" />
+            <mxPoint x="520" y="240" as="sourcePoint" />
+            <mxPoint x="695" y="325" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_auth_db" edge="1" parent="1" source="auth" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#9673a6;strokeWidth=3;" target="authdb" value="SQL">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_task_db" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#9673a6;entryX=0.5;entryY=0;entryDx=0;entryDy=0;entryPerimeter=0;" target="taskdb" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;SQL-транзакция: изменение задачи + outbox-событие&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="710" y="391" />
+            </Array>
+            <mxPoint x="710" y="390" as="sourcePoint" />
+            <mxPoint x="767.5" y="450" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_publisher_db" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=none;strokeColor=#d79b00;strokeWidth=3;endFill=0;startArrow=block;startFill=1;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;claim неопубликованных outbox_events&lt;/font&gt;">
+          <mxGeometry relative="1" x="-0.3589" as="geometry">
+            <mxPoint y="1" as="offset" />
+            <Array as="points">
+              <mxPoint x="1040" y="575" />
+            </Array>
+            <mxPoint x="1040.0769230769233" y="150" as="sourcePoint" />
+            <mxPoint x="810" y="575" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_publisher_exchange" edge="1" parent="1" source="publisher" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#d79b00;strokeWidth=3;exitX=0.997;exitY=0.419;exitDx=0;exitDy=0;exitPerimeter=0;" target="exchange" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;публикация task.created / task.status_changed / task.deleted / task.enriched / notification.sent&lt;/font&gt;">
+          <mxGeometry relative="1" x="-0.0247" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="1159" y="90" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_exchange_notif" edge="1" parent="1" source="exchange" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#d6b656;strokeWidth=3;entryX=0.75;entryY=0;entryDx=0;entryDy=0;" target="notif_queue" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;routing key task.enriched&lt;/font&gt;">
+          <mxGeometry relative="1" x="-0.1502" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="1645" y="160" />
+              <mxPoint x="1893" y="160" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_exchange_audit" edge="1" parent="1" source="exchange" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#d6b656;strokeWidth=3;" target="audit_queue" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;routing key task.* / notification.*&lt;/font&gt;">
+          <mxGeometry relative="1" x="-0.0521" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="1645" y="160" />
+              <mxPoint x="1440" y="160" />
+            </Array>
+            <mxPoint x="1580" y="130" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_notif_consume" edge="1" parent="1" source="notif_queue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#d79b00;strokeWidth=3;" target="notification_worker" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;consume task.enriched + ack&lt;/font&gt;">
+          <mxGeometry relative="1" x="0.4456" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="2000" y="260" />
+              <mxPoint x="2000" y="960" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_audit_consume" edge="1" parent="1" source="audit_queue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#d79b00;strokeWidth=3;" target="audit_worker" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;consume task.* / notification.* + ack&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1330" y="255" />
+              <mxPoint x="1330" y="760" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_notif_db" edge="1" parent="1" source="notification_worker" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#9673a6;strokeWidth=3;" target="taskdb" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;notification_deliveries + processed_events&lt;/font&gt;">
+          <mxGeometry relative="1" x="-0.2433" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="740" y="960" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_notification_cron_db" edge="1" parent="1" source="notification_cron" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#9673a6;strokeWidth=3;" target="taskdb" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;читает pending/failed, обновляет status, пишет notification.sent в outbox&lt;/font&gt;">
+          <mxGeometry relative="1" x="-0.7" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="690" y="880" />
+              <mxPoint x="690" y="880" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_notif_email" edge="1" parent="1" source="notification_cron" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#666666;strokeWidth=3;" target="mock_email" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;плановая mock-отправка&lt;/font&gt;">
+          <mxGeometry relative="1" x="-0.1111" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_audit_db" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#9673a6;strokeWidth=3;" target="taskdb" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;worker_event_logs / worker_errors&lt;/font&gt;">
+          <mxGeometry relative="1" x="-0.1692" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="780" y="765" />
+            </Array>
+            <mxPoint x="1199.92" y="764.9569230769229" as="sourcePoint" />
+            <mxPoint x="791.92" y="680.005" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_audit_report" edge="1" parent="1" source="audit_worker" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#666666;strokeWidth=3;entryX=0.479;entryY=0.873;entryDx=0;entryDy=0;entryPerimeter=0;" target="report" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;обновляет отчет&lt;/font&gt;">
+          <mxGeometry relative="1" x="0.3951" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="1120" y="810" />
+              <mxPoint x="1120" y="1410" />
+              <mxPoint x="229" y="1410" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_cron_taskdb" edge="1" parent="1" source="cron" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#9673a6;exitX=0.87;exitY=0;exitDx=0;exitDy=0;entryX=0.239;entryY=0.987;entryDx=0;entryDy=0;entryPerimeter=0;exitPerimeter=0;strokeWidth=3;" target="taskdb" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;читает метрики задач + ошибки worker-ов&lt;/font&gt;">
+          <mxGeometry relative="1" x="-0.4047" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="410" y="860" />
+              <mxPoint x="658" y="860" />
+            </Array>
+            <mxPoint x="890" y="785" as="sourcePoint" />
+            <mxPoint x="830" y="650" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_cron_authdb" edge="1" parent="1" source="cron" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#9673a6;startSize=6;strokeWidth=3;" target="authdb" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;читает auth.login из audit_log&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="240" y="630" />
+              <mxPoint x="240" y="630" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_cron_report" edge="1" parent="1" source="cron" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#666666;strokeWidth=3;" target="report" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;записывает CSV по расписанию&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_notif_dlx" edge="1" parent="1" source="notif_queue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#b85450;dashed=1;strokeWidth=3;" target="dlx" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;после retry: nack(requeue=false)&lt;/font&gt;">
+          <mxGeometry relative="1" x="-0.4286" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="1845" y="475" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_audit_dlx" edge="1" parent="1" source="audit_queue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#b85450;dashed=1;strokeWidth=3;" target="dlx" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;после retry: nack(requeue=false)&lt;/font&gt;">
+          <mxGeometry relative="1" x="-0.3208" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="1470" y="475" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_dlx_dlq" edge="1" parent="1" source="dlx" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#b85450;strokeWidth=3;" target="dlq" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;dead-letter маршрут&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="redis" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#647687;strokeColor=#314354;fontColor=#ffffff;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;Redis&lt;br&gt;cache для GET /tasks/{id}&lt;br&gt;fixed-window rate limit&lt;br&gt;login и write operations&lt;/font&gt;" vertex="1">
+          <mxGeometry height="160" width="180" x="380" y="500" as="geometry" />
+        </mxCell>
+        <mxCell id="enrichment_queue" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e3c800;strokeColor=#B09500;fontColor=#000000;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;очередь&lt;br&gt;enrichment.task-events&lt;br&gt;binding: task.created,&lt;br&gt;task.status_changed&lt;/font&gt;" vertex="1">
+          <mxGeometry height="105" width="190" x="1555" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="enrichment_worker" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0a30a;strokeColor=#BD7000;fontStyle=1;fontColor=#000000;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;enrichment-service&lt;br&gt;читает task.created/status_changed&lt;br&gt;обогащает metadata&lt;br&gt;пишет task.enriched в outbox&lt;/font&gt;" vertex="1">
+          <mxGeometry height="125" width="230" x="940" y="760" as="geometry" />
+        </mxCell>
+        <mxCell id="observability_box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontColor=#000000;arcSize=5;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;Observability stack&lt;/font&gt;" vertex="1">
+          <mxGeometry height="690" width="430" x="2110" y="5" as="geometry" />
+        </mxCell>
+        <mxCell id="prometheus" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#00aba9;strokeColor=#008a8a;fontStyle=1;fontColor=#ffffff;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;Prometheus&lt;br&gt;scrape /metrics&lt;br&gt;recording rules&lt;br&gt;SLO alerts&lt;/font&gt;" vertex="1">
+          <mxGeometry height="105" width="220" x="2210" y="65" as="geometry" />
+        </mxCell>
+        <mxCell id="grafana" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#00aba9;strokeColor=#008a8a;fontStyle=1;fontColor=#ffffff;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;Grafana&lt;br&gt;дашборд&lt;br&gt;API latency, availability,&lt;br&gt;event pipeline, workers&lt;/font&gt;" vertex="1">
+          <mxGeometry height="115" width="220" x="2210" y="225" as="geometry" />
+        </mxCell>
+        <mxCell id="jaeger" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#00aba9;strokeColor=#008a8a;fontStyle=1;fontColor=#ffffff;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;Jaeger&lt;br&gt;distributed traces&lt;br&gt;trace_id, span_id,&lt;br&gt;correlation_id&lt;/font&gt;" vertex="1">
+          <mxGeometry height="115" width="220" x="2210" y="395" as="geometry" />
+        </mxCell>
+        <mxCell id="alerts" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#00aba9;strokeColor=#008a8a;fontStyle=1;fontColor=#ffffff;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;Alert rules&lt;br&gt;5xx, p95 latency,&lt;br&gt;event success ratio,&lt;br&gt;DLQ/worker errors&lt;/font&gt;" vertex="1">
+          <mxGeometry height="100" width="220" x="2210" y="565" as="geometry" />
+        </mxCell>
+        <mxCell id="e_exchange_enrichment" edge="1" parent="1" source="exchange" target="enrichment_queue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#d79b00;strokeWidth=3;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;routing key task.created/status_changed&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_enrichment_consume" edge="1" parent="1" source="enrichment_queue" target="enrichment_worker" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#d79b00;strokeWidth=3;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;consume + ack&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_enrichment_db" edge="1" parent="1" source="enrichment_worker" target="taskdb" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#9673a6;strokeWidth=3;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;task_enrichments + outbox task.enriched&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_redis_auth" edge="1" parent="1" source="auth" target="redis" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#9673a6;strokeWidth=3;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;rate limit login&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_redis_task" edge="1" parent="1" source="task" target="redis" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#9673a6;strokeWidth=3;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;cache hit/miss + rate limit writes&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_grafana_prometheus" edge="1" parent="1" source="grafana" target="prometheus" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#666666;strokeWidth=3;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;PromQL datasource&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_grafana_jaeger" edge="1" parent="1" source="grafana" target="jaeger" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#666666;strokeWidth=3;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;trace datasource&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_prometheus_alerts" edge="1" parent="1" source="prometheus" target="alerts" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#666666;strokeWidth=3;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;SLO / alert rules&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_prometheus_auth" edge="1" parent="1" source="prometheus" target="auth" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#00aba9;strokeWidth=2;dashed=1;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;/metrics&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_prometheus_task" edge="1" parent="1" source="prometheus" target="task" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#00aba9;strokeWidth=2;dashed=1;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;/metrics&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_prometheus_publisher" edge="1" parent="1" source="prometheus" target="publisher" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#00aba9;strokeWidth=2;dashed=1;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;/metrics&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_prometheus_enrichment_worker" edge="1" parent="1" source="prometheus" target="enrichment_worker" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#00aba9;strokeWidth=2;dashed=1;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;/metrics&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_prometheus_notification_worker" edge="1" parent="1" source="prometheus" target="notification_worker" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#00aba9;strokeWidth=2;dashed=1;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;/metrics&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_prometheus_audit_worker" edge="1" parent="1" source="prometheus" target="audit_worker" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#00aba9;strokeWidth=2;dashed=1;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;/metrics&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_trace_auth" edge="1" parent="1" source="auth" target="jaeger" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#00aba9;strokeWidth=2;dashed=1;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;OTLP traces&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_trace_task" edge="1" parent="1" source="task" target="jaeger" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#00aba9;strokeWidth=2;dashed=1;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;OTLP traces&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_trace_publisher" edge="1" parent="1" source="publisher" target="jaeger" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#00aba9;strokeWidth=2;dashed=1;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;OTLP traces&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_trace_enrichment_worker" edge="1" parent="1" source="enrichment_worker" target="jaeger" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#00aba9;strokeWidth=2;dashed=1;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;OTLP traces&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_trace_notification_worker" edge="1" parent="1" source="notification_worker" target="jaeger" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#00aba9;strokeWidth=2;dashed=1;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;OTLP traces&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_trace_audit_worker" edge="1" parent="1" source="audit_worker" target="jaeger" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;strokeColor=#00aba9;strokeWidth=2;dashed=1;" value="&lt;font style=&quot;font-size: 15px;&quot;&gt;OTLP traces&lt;/font&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

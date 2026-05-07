@@ -7,6 +7,8 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import text
 
 from shared.errors import register_error_handlers
+from shared.metrics import register_prometheus_metrics
+from shared.tracing import register_tracing_middleware
 
 from .config import get_settings
 from .db import engine, run_migrations
@@ -29,6 +31,8 @@ async def lifespan(_: FastAPI):
 settings = get_settings()
 app = FastAPI(title=settings.app_name, version="1.0.0", lifespan=lifespan)
 register_error_handlers(app)
+register_tracing_middleware(app, service_name=settings.app_name, otlp_endpoint=settings.otel_exporter_otlp_endpoint)
+register_prometheus_metrics(app, service_name=settings.app_name)
 app.include_router(auth_router)
 
 

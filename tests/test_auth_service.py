@@ -187,3 +187,16 @@ def test_login_rate_limit_returns_429_with_retry_after(monkeypatch):
         assert second_response.json()["error"]["code"] == "too_many_requests"
     finally:
         app.dependency_overrides.pop(get_settings, None)
+
+def test_auth_service_prometheus_metrics_endpoint():
+    with TestClient(app) as client:
+        client.get("/health")
+        response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    body = response.text
+    assert "http_requests_total" in body
+    assert "http_request_duration_seconds_bucket" in body
+    assert 'service="auth-service"' in body
+    assert 'endpoint="/health"' in body

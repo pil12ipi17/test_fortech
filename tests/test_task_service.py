@@ -100,6 +100,8 @@ def test_stage7_event_contract_envelopes_keep_trace_metadata():
     assert sent["version"] == 1
     assert sent["producer"] == "notification-worker"
     assert sent["correlation_id"] == enriched["correlation_id"]
+    assert enriched["trace_context"]["x-correlation-id"] == enriched["correlation_id"]
+    assert sent["trace_context"]["x-correlation-id"] == sent["correlation_id"]
 
 def test_enrichment_worker_creates_enrichment_and_outbox_event():
     envelope = build_event_envelope(
@@ -808,3 +810,61 @@ def test_task_item_cache_hit_and_invalidation_after_update(monkeypatch):
             assert list(fake_redis.scan_iter("tasks:*")) == []
     finally:
         app.dependency_overrides.pop(get_settings, None)
+
+def test_create_task_propagates_correlation_id_to_response_and_outbox(monkeypatch):
+    fake_redis = FakeRedis()
+    tracing_settings = Settings(
+        database_url=os.environ["TASK_DATABASE_URL"],
+        jwt_secret="test-secret",
+        redis_url="redis://fake",
+        task_write_rate_limit_requests=100,
+        task_write_rate_limit_window_seconds=60,
+    )
+    app.dependency_overrides[get_settings] = lambda: tracing_settings
+    monkeypatch.setattr(task_routers, "get_redis_client", lambda settings: fake_redis)
+
+    owner_token = make_token("trace-user-1", "trace@example.com", roles=["user"], team_ids=["trace-team-1"])
+    correlation_id = "correlation-create-task-1"
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/tasks",
+                headers={
+                    "Authorization": f"Bearer {owner_token}",
+                    "X-Correlation-ID": correlation_id,
+                },
+                json={
+                    "title": "Traceable task",
+                    "description": "Correlation should reach outbox",
+                    "assignee_id": "trace-user-1",
+                    "team_id": "trace-team-1",
+                    "priority": "medium",
+                },
+            )
+
+        assert response.status_code == 201
+        assert response.headers["x-correlation-id"] == correlation_id
+        assert response.headers["x-trace-id"]
+
+        db = SessionLocal()
+        try:
+            outbox_event = db.query(OutboxEvent).filter(OutboxEvent.event_type == "task.created").one()
+            assert outbox_event.correlation_id == correlation_id
+        finally:
+            db.close()
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
+
+def test_task_service_prometheus_metrics_endpoint():
+    with TestClient(app) as client:
+        client.get("/health")
+        response = client.get("/metrics")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    body = response.text
+    assert "http_requests_total" in body
+    assert "http_request_duration_seconds_bucket" in body
+    assert 'service="task-service"' in body
+    assert 'endpoint="/health"' in body

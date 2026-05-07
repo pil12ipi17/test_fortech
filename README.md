@@ -8,6 +8,7 @@
 - `RabbitMQ` для event-driven обработки событий задач
 - `Redis` для кэширования и rate limiting
 - `Nginx` как gateway и frontend-сервер
+- `Prometheus`, `Grafana` и `Jaeger` для observability, SLI/SLO, метрик и traces
 - `Docker Compose` для локального стенда
 - `pytest` для автотестов
 
@@ -18,6 +19,9 @@
 - `task-db` - PostgreSQL база задач, outbox, worker-логов, уведомлений и audit-данных
 - `rabbitmq` - брокер сообщений для event-driven контура
 - `redis` - кэш и хранилище счетчиков rate limit
+- `prometheus` - сбор метрик API, publisher-а и worker-ов
+- `grafana` - dashboard для observability и SLO
+- `jaeger` - хранение и просмотр distributed traces
 - `auth-service` - сервис пользователей, авторизации, ролей и команд
 - `task-service` - сервис задач, RBAC, outbox, кэша и rate limiting write-операций
 - `outbox-publisher` - фоновый процесс публикации outbox-событий в RabbitMQ
@@ -42,6 +46,8 @@
 9. После бизнес-изменений задач `task-service` пишет события в transactional outbox.
 10. `outbox-publisher` публикует события из outbox в RabbitMQ.
 11. `notification-worker` и `audit-worker` независимо обрабатывают события из RabbitMQ.
+12. API и worker-процессы отдают Prometheus-метрики, а OpenTelemetry traces уходят в Jaeger.
+13. Grafana использует Prometheus и Jaeger как источники данных для анализа состояния системы.
 
 Маршрутизация через gateway:
 - `/` -> `frontend`
@@ -229,6 +235,49 @@ Rate limiting:
 - при превышении лимита API возвращает `429 Too Many Requests`
 - ответ содержит `Retry-After`
 
+## Observability, SLI/SLO и fault injection
+
+Stage 8 добавляет в проект контур наблюдаемости: метрики, traces, dashboard, SLO/alerts и проверку поведения при отказах.
+
+Компоненты observability:
+- `Prometheus` собирает метрики с `/metrics` endpoint-ов `auth-service`, `task-service`, `outbox-publisher`, `enrichment-service`, `notification-worker` и `audit-worker`.
+- `Grafana` показывает dashboard `Task Management Observability` с API RPS, availability, latency, worker throughput, DLQ/errors и SLI panels.
+- `Jaeger` показывает distributed traces для цепочки `task-service -> outbox-publisher -> RabbitMQ -> enrichment-service/notification-worker/audit-worker`.
+
+Основные SLO:
+- API availability: не ниже `99.5%` за 30 дней.
+- `POST /tasks` latency: `95%` запросов быстрее `3s`.
+- Event pipeline success: не ниже `99%` успешно обработанных worker-событий.
+
+Основные alerts:
+- `ApiAvailabilityBelowSlo` - API availability ниже SLO.
+- `HighApi5xxRate` - повышенная доля 5xx.
+- `CreateTaskP95LatencyAboveSlo` - p95 latency создания задачи выше 3 секунд.
+- `EventPipelineSuccessBelowSlo` - деградация event pipeline.
+- `ConsumerErrorsOrDlqGrowing` - появились worker errors или DLQ.
+- `WorkerHandlersSaturated` - worker долго работает на лимите активных обработчиков.
+
+Trace flow создания или изменения задачи:
+1. `task-service` принимает HTTP-запрос и создает server span.
+2. Внутри `task-service` создается span сохранения задачи или изменения статуса.
+3. `task-service` записывает событие в `outbox_events` и сохраняет `trace_context`.
+4. `outbox-publisher` читает outbox, продолжает trace и публикует сообщение в RabbitMQ.
+5. Worker извлекает `traceparent` из RabbitMQ headers и создает consumer span.
+6. Handler worker-а выполняет бизнес-обработку и пишет результат в БД.
+
+Ручная проверка traces:
+- создать задачу или сменить статус через frontend/API;
+- открыть `http://localhost:16686`;
+- выбрать `task-service` или `outbox-publisher`;
+- найти trace `HTTP POST /tasks` или `HTTP PATCH /tasks/{task_id}/status`;
+- убедиться, что в trace видны `task-service`, `outbox-publisher`, `enrichment-service`, `notification-worker` и `audit-worker`.
+
+Fault injection был проверен для двух сценариев:
+- `task-db` unavailable: readiness `task-service` возвращает `503`, но Prometheus `up` остается `1`, потому что процесс жив.
+- `RabbitMQ` unavailable: `POST /tasks` сохраняет задачу и outbox-событие; после восстановления брокера pending-событие публикуется и обрабатывается worker-ами.
+
+Подробные SLI/SLO, PromQL, alerts, trace flow и результаты fault injection описаны в `docs/stage-8-observability-slo.md`.
+
 ## API endpoints
 
 Auth-service через gateway:
@@ -315,6 +364,11 @@ PostgreSQL:
 - `auth-db` доступен на `localhost:5433`
 - `task-db` доступен на `localhost:5434`
 
+Observability:
+- `http://localhost:9090` - Prometheus
+- `http://localhost:3000` - Grafana, login/password: `admin` / `admin`
+- `http://localhost:16686` - Jaeger UI
+
 ## Переменные окружения
 
 Основные переменные:
@@ -343,6 +397,11 @@ TASK_REDIS_URL=redis://redis:6379/0
 TASK_TASK_CACHE_TTL_SECONDS=90
 TASK_TASK_WRITE_RATE_LIMIT_REQUESTS=30
 TASK_TASK_WRITE_RATE_LIMIT_WINDOW_SECONDS=60
+AUTH_OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318/v1/traces
+TASK_OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318/v1/traces
+TASK_WORKER_METRICS_PORT=9100
+GRAFANA_ADMIN_USER=admin
+GRAFANA_ADMIN_PASSWORD=admin
 ```
 
 ## Базы данных
@@ -648,9 +707,12 @@ reports/audit_report.csv
 - login rate limit
 - единый формат ошибок
 - readiness endpoints
+- Prometheus `/metrics` endpoints
+- trace/correlation propagation into outbox events
+- event pipeline SLI/SLO metrics foundation
 
 Актуальный локальный результат:
 
 ```text
-10 passed
+20 passed
 ```

@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     task_cache_ttl_seconds: int = 90
     task_write_rate_limit_requests: int = 30
     task_write_rate_limit_window_seconds: int = 60
+    otel_exporter_otlp_endpoint: str | None = None
+    metrics_port: int | None = None
 
     model_config = SettingsConfigDict(env_prefix="TASK_", case_sensitive=False)
 
