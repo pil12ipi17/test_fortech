@@ -20,8 +20,8 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
 logger = logging.getLogger("task-outbox-publisher")
-tracer = get_tracer("task-outbox-publisher")
 SERVICE_NAME = "outbox-publisher"
+tracer = get_tracer(SERVICE_NAME)
 
 
 def _decode_envelope(payload_json: str) -> dict:

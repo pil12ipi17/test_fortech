@@ -12,14 +12,30 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import SpanKind, Status, StatusCode, format_span_id, format_trace_id
 
 logger = logging.getLogger("observability.tracing")
-_TRACE_PROVIDER_CONFIGURED = False
+_TRACER_PROVIDERS: dict[str, TracerProvider] = {}
 CORRELATION_ID_HEADER = "x-correlation-id"
 TRACEPARENT_HEADER = "traceparent"
 
 
+class _ConfiguredTracer:
+    def __init__(self, service_name: str) -> None:
+        self.service_name = service_name
+
+    def _tracer(self):
+        provider = _TRACER_PROVIDERS.get(self.service_name)
+        if provider is None:
+            return trace.get_tracer(self.service_name)
+        return provider.get_tracer(self.service_name)
+
+    def start_as_current_span(self, *args, **kwargs):
+        return self._tracer().start_as_current_span(*args, **kwargs)
+
+    def __getattr__(self, name: str):
+        return getattr(self._tracer(), name)
+
+
 def configure_tracing(*, service_name: str, otlp_endpoint: str | None) -> None:
-    global _TRACE_PROVIDER_CONFIGURED
-    if _TRACE_PROVIDER_CONFIGURED:
+    if service_name in _TRACER_PROVIDERS:
         return
 
     provider = TracerProvider(resource=Resource.create({SERVICE_NAME: service_name}))
@@ -29,12 +45,11 @@ def configure_tracing(*, service_name: str, otlp_endpoint: str | None) -> None:
     else:
         logger.info("otel_exporter_disabled service=%s", service_name)
 
-    trace.set_tracer_provider(provider)
-    _TRACE_PROVIDER_CONFIGURED = True
+    _TRACER_PROVIDERS[service_name] = provider
 
 
 def get_tracer(service_name: str):
-    return trace.get_tracer(service_name)
+    return _ConfiguredTracer(service_name)
 
 
 def get_current_trace_ids() -> tuple[str | None, str | None]:

@@ -26,7 +26,6 @@ from .rabbitmq import build_rabbitmq_config
 from .worker_store import add_worker_event_log, claim_event_for_processing, record_worker_error
 
 logger = logging.getLogger("task-event-worker")
-tracer = get_tracer("task-event-worker")
 
 DEFAULT_BINDING_KEYS = ("task.*",)
 RETRY_HEADER = "x-retry-count"
@@ -147,6 +146,7 @@ async def run_task_event_consumer(
 ) -> None:
     settings = get_settings()
     configure_tracing(service_name=consumer_name, otlp_endpoint=settings.otel_exporter_otlp_endpoint)
+    tracer = get_tracer(consumer_name)
     start_metrics_http_server(settings.metrics_port)
     connection, channel, exchange, queue = await _create_queue(queue_name=queue_name, binding_keys=binding_keys)
     logger.info("Worker started consumer=%s queue=%s binding_keys=%s", consumer_name, queue_name, binding_keys)

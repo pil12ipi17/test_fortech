@@ -34,7 +34,7 @@ from ..cache.redis_client import get_redis_client
 from ..cache.task_cache import build_task_item_cache_key, get_cached_json, invalidate_task_cache, set_cached_json
 
 logger = logging.getLogger("task-service.rate-limit")
-tracer = get_tracer("task-service.api")
+tracer = get_tracer("task-service")
 
 router = APIRouter(tags=["tasks"])
 
