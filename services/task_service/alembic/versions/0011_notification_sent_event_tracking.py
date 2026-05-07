@@ -5,8 +5,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "task_0011_notification_sent_event_tracking"
-down_revision = "task_0010_notification_correlation"
+revision = "task_0011_notif_sent"
+down_revision = "task_0010_notif_corr"
 branch_labels = None
 depends_on = None
 
